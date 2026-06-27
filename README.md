@@ -21,7 +21,7 @@ The loop <strong>seeks</strong> its done-conditions — and doesn't stop until a
 
 It composes the primitives Claude Code already ships (the Stop hook, subagents, native worktrees) into a one-install plugin with **durable, git-trackable loop definitions** and a *"don't stop until provably done"* engine. Native on Windows.
 
-**Best for goals with an executable oracle** — tests green, typecheck/lint/build pass, coverage up, migrations/codemods/refactors. Partial fit for taste-driven work via artifact-judged conditions + human checkpoints. (See [Fit & limits](docs/DESIGN.md).)
+**Best for goals with an executable oracle** — tests green, typecheck/lint/build pass, coverage up, migrations/codemods/refactors. Partial fit for taste-driven work via artifact-judged conditions + human checkpoints.
 
 ## How a loop ends — three terminal states (all proven end-to-end)
 
@@ -74,7 +74,7 @@ Each pass prints a banner: `▸ my-loop · pass 3 · items 9→7 · edited Butto
 - **The agent is smart.** Guided by the bundled `/seeks:loop` skill, it does **one pass per turn** — make an edit (and commit on `seeks/<name>`), *or* run the verifier — then ends its turn so the hook re-drives it. It mutates semantic state only through the tested, atomic `bin/seeks.mjs` CLI; it never hand-writes JSON.
 - **Maker ≠ checker.** When the backlog empties, a **separate verifier subagent** `cd`s into the worktree, runs each done-condition itself, and is the *only* writer of `verifier_certified`. It runs a `git diff` **anti-cheat** so the maker can't edit the oracle to force green.
 
-> **One pass per turn is load-bearing**, not a style choice: the `max_iters` backstop counts *turn-ends*, so the loop must yield each pass for the cap (and compaction-survival) to work. See [`docs/FINDINGS.md`](docs/FINDINGS.md) F1.
+> **One pass per turn is load-bearing**, not a style choice: the `max_iters` backstop counts *turn-ends*, so the loop must yield each pass for the cap (and compaction-survival) to work.
 
 ## Layout
 
@@ -93,14 +93,7 @@ Only the **definition** is git-tracked (`.seeks/loops/<name>/spec.md`, `.seeks/c
 
 ## Status
 
-**v1.** 35/35 unit tests; all three terminal states demonstrated end-to-end against deliberately-built fixtures, with anti-cheat clean across every verifier round. Honest open items (the `stuck` path + a compaction run) are tracked in [`docs/FINDINGS.md`](docs/FINDINGS.md).
-
-## Docs
-
-- [**DESIGN.md**](docs/DESIGN.md) — architecture & rationale (spec authority)
-- [**PLAN.md**](docs/PLAN.md) — the TDD build plan
-- [**FINDINGS.md**](docs/FINDINGS.md) — issues found in the live e2e + their fixes
-- [**RESULTS.md**](spikes/task0-probes/RESULTS.md) — empirical probe + e2e results
+**v1.** 35/35 unit tests; all three terminal states demonstrated end-to-end against deliberately-built fixtures, with anti-cheat clean across every verifier round. Honest open items: the `stuck` path + a compaction run.
 
 ---
 
