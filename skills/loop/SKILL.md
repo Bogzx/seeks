@@ -5,6 +5,8 @@ description: Per-pass discipline for an active seeks loop. Drive state ONLY thro
 
 # seeks — per-pass protocol
 
+> **CARDINAL RULE: do exactly ONE pass, then STOP and end your turn.** Never loop internally across passes. Ending your turn is what lets the Stop hook drive the next pass, advance `stop_fires` (so the `max_iters` backstop + stuck guard can fire), and survive context compaction. A loop where you never yield is unkillable by the hook.
+
 State for loop `<name>` lives in the PRIMARY checkout's `.seeks/run/<name>/`. You are usually inside the loop's worktree; **always mutate state through the CLI, which resolves the control plane via git** — never write `.seeks/...` by relative path yourself:
 `node "${CLAUDE_PLUGIN_ROOT}/bin/seeks.mjs" <subcommand> <name> ...`  (run via the Bash tool).
 
@@ -15,7 +17,8 @@ State for loop `<name>` lives in the PRIMARY checkout's `.seeks/run/<name>/`. Yo
 3. **Backlog EMPTY (claim of done)** → dispatch a **verifier subagent** (separate context). Hand it the absolute worktree path; it must `cd` there and RUN each executable done-condition from spec.md itself (subagents do NOT inherit cwd), write `verify/<n>.md`, and report per condition.
    - **All non-human conditions pass →** `… status-set <name> '{"verifier_certified":true,"done":true,"last_verdict":"pass"}'`.
    - **Any fails →** for each unmet condition: `… backlog-add <name> "<remediation>"` and `… condition-reject <name> <condition-id>` (atomic; auto-sets needs_human at the threshold). Set `last_verdict` (e.g. `"REJECT (typecheck)"`). `human-required` condition → `… status-set <name> '{"needs_human":true}'`.
-4. **Always, as the LAST action:** `… progress-tick <name>` (recomputes open_items/no_progress/items_closed). The iteration count + hard backstop are the hook's, so a missed tick degrades signals but cannot make the loop unkillable. Do ≥1 real tool action each pass (you always do).
+4. **Second-to-last action:** `… progress-tick <name>` (recomputes open_items/no_progress/items_closed). Do ≥1 real tool action each pass (you always do).
+5. **LAST action — STOP. One pass per turn.** After `progress-tick`, end your turn: print a one-line recap and nothing more. **Do NOT begin the next pass yourself.** The Stop hook re-invokes you for the next pass, or releases you when the loop is done / needs-human / stuck / at `max_iters`. This is mandatory — ending your turn is what advances `stop_fires` so the hook-owned `max_iters` backstop and the stuck guard can actually fire, and what lets state survive compaction between passes. Always stop after exactly one pass (one backlog item, OR one verifier round).
 
 ## Verifier subagent (maker ≠ checker)
 Fresh context; runs checks in the worktree; cites evidence; rejects on ambiguity; the ONLY writer of `verifier_certified`.
