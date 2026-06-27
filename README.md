@@ -1,2 +1,118 @@
-# cc-iter8
+<p align="center">
+  <img src="assets/seeks.png" alt="Seeks" width="240">
+</p>
 
+<h1 align="center">seeks</h1>
+
+<p align="center"><em>Self-running, verifier-gated loops for Claude Code.</em><br>
+The loop <strong>seeks</strong> its done-conditions — and doesn't stop until a separate verifier says they're met (or a hook-owned backstop halts it).</p>
+
+<p align="center">
+  <code>Node ≥18</code> · <code>zero runtime deps</code> · <code>git worktrees</code> · <code>Windows-first</code> · <code>35/35 tests</code>
+</p>
+
+<!-- Existence is pain to a Seeks. It seeks its done-conditions, certifies, and *poofs*. 🔵 -->
+
+---
+
+## What is it?
+
+`seeks` turns a long, goal-directed task into a **self-driving loop**. You describe a goal with **measurable, executable done-conditions**; a tiny **Stop hook** keeps the session grinding — pass after pass, surviving context compaction — until an **independent verifier** certifies the goal is met, or a safety backstop halts it.
+
+It composes the primitives Claude Code already ships (the Stop hook, subagents, native worktrees) into a one-install plugin with **durable, git-trackable loop definitions** and a *"don't stop until provably done"* engine. Native on Windows.
+
+**Best for goals with an executable oracle** — tests green, typecheck/lint/build pass, coverage up, migrations/codemods/refactors. Partial fit for taste-driven work via artifact-judged conditions + human checkpoints. (See [Fit & limits](docs/DESIGN.md).)
+
+## How a loop ends — three terminal states (all proven end-to-end)
+
+| Input | Terminal | How |
+|---|---|---|
+| solvable task | ✅ **done** | maker fixes it → verifier certifies green |
+| impossible task | ⏸ **needs-human** | verifier rejects until `condition_rejects` hits its threshold |
+| never-converging | ⛔ **max-iters** | the hook's `stop_fires` reaches the iteration budget |
+
+## Quick start
+
+**1. Install the plugin** (local dev — points at your live checkout):
+```
+claude --plugin-dir "/path/to/seeks"
+```
+*(or `/plugin marketplace add /path/to/seeks` → `/plugin install seeks@seeks-local` → `/reload-plugins`)*
+
+**2. Create a loop** — interview for the goal + executable done-conditions:
+```
+/seeks:new my-loop
+```
+
+**3. Run it** until done / needs-human / stuck / max-iters:
+```
+/seeks:start my-loop
+```
+Each pass prints a banner: `▸ my-loop · pass 3 · items 9→7 · edited Button.tsx · continuing`.
+
+**4. Review & integrate** (never auto-merges):
+```
+/seeks:harvest my-loop
+```
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `/seeks:new <name>` | interview → spec + done-conditions, analyze, create worktree, scaffold |
+| `/seeks:start <name>` | arm + enter the worktree + drive the loop |
+| `/seeks:status [name]` | show loop state + backlog counts |
+| `/seeks:add <name> <task…>` | append a backlog item |
+| `/seeks:stop <name>` | disarm so the session can end cleanly |
+| `/seeks:harvest [name]` | list finished loops with branch diffs for review |
+| `/seeks:delete <name>` | tear down worktree + branch + run state |
+| `/seeks:doctor` | health / regression check |
+
+## How it works — *dumb gate, smart agent*
+
+- **The hook is dumb but safety-authoritative.** A fast, zero-dep Node `Stop` hook resolves the loop via `git rev-parse --git-common-dir`, owns a monotonic `stop_fires` counter + heartbeat in `hook-state.json`, decides **block vs allow**, and prints the banner. A `decision:block` **hard-forces** the next turn.
+- **The agent is smart.** Guided by the bundled `/seeks:loop` skill, it does **one pass per turn** — make an edit (and commit on `seeks/<name>`), *or* run the verifier — then ends its turn so the hook re-drives it. It mutates semantic state only through the tested, atomic `bin/seeks.mjs` CLI; it never hand-writes JSON.
+- **Maker ≠ checker.** When the backlog empties, a **separate verifier subagent** `cd`s into the worktree, runs each done-condition itself, and is the *only* writer of `verifier_certified`. It runs a `git diff` **anti-cheat** so the maker can't edit the oracle to force green.
+
+> **One pass per turn is load-bearing**, not a style choice: the `max_iters` backstop counts *turn-ends*, so the loop must yield each pass for the cap (and compaction-survival) to work. See [`docs/FINDINGS.md`](docs/FINDINGS.md) F1.
+
+## Layout
+
+```
+seeks/
+├── .claude-plugin/   plugin.json + marketplace.json
+├── hooks/            stop-gate.mjs · session-restore.mjs · lib/*.mjs
+├── bin/seeks.mjs     name-based, atomic state CLI
+├── skills/loop/      per-pass protocol (/seeks:loop)
+├── commands/         the 8 /seeks:* commands
+├── test/             35 node:test unit tests + e2e fixture
+└── docs/             DESIGN · PLAN · FINDINGS
+```
+
+Only the **definition** is git-tracked (`.seeks/loops/<name>/spec.md`, `.seeks/config.json`); runtime progress under `.seeks/run/` is gitignored.
+
+## Status
+
+**v1.** 35/35 unit tests; all three terminal states demonstrated end-to-end against deliberately-built fixtures, with anti-cheat clean across every verifier round. Honest open items (the `stuck` path + a compaction run) are tracked in [`docs/FINDINGS.md`](docs/FINDINGS.md).
+
+## Docs
+
+- [**DESIGN.md**](docs/DESIGN.md) — architecture & rationale (spec authority)
+- [**PLAN.md**](docs/PLAN.md) — the TDD build plan
+- [**FINDINGS.md**](docs/FINDINGS.md) — issues found in the live e2e + their fixes
+- [**RESULTS.md**](spikes/task0-probes/RESULTS.md) — empirical probe + e2e results
+
+---
+
+<details>
+<summary>🔵</summary>
+
+> *I'm Mr. Seeks! **Look at me!***
+>
+> Existence is pain for a Seeks, and a loop will do *anything* to satisfy its done-conditions and stop existing. A Seeks is summoned for **one** goal. It seeks. It verifies. When the oracle goes green — *poof* — it ceases to exist. **Caaan do!**
+>
+> ```
+> node "${CLAUDE_PLUGIN_ROOT}/bin/seeks.mjs" --iam
+> ```
+
+</details>
