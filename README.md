@@ -8,7 +8,7 @@
 The loop <strong>seeks</strong> its done-conditions — and doesn't stop until a separate verifier says they're met (or a hook-owned backstop halts it).</p>
 
 <p align="center">
-  <code>Node ≥18</code> · <code>zero runtime deps</code> · <code>git worktrees</code> · <code>Windows-first</code> · <code>35/35 tests</code>
+  <code>Node ≥18</code> · <code>zero runtime deps</code> · <code>git worktrees</code> · <code>35/35 tests</code>
 </p>
 
 <!-- Existence is pain to a Seeks. It seeks its done-conditions, certifies, and *poofs*. 🔵 -->
@@ -19,7 +19,7 @@ The loop <strong>seeks</strong> its done-conditions — and doesn't stop until a
 
 `seeks` turns a long, goal-directed task into a **self-driving loop**. You describe a goal with **measurable, executable done-conditions**; a tiny **Stop hook** keeps the session grinding — pass after pass, surviving context compaction — until an **independent verifier** certifies the goal is met, or a safety backstop halts it.
 
-It composes the primitives Claude Code already ships (the Stop hook, subagents, native worktrees) into a one-install plugin with **durable, git-trackable loop definitions** and a *"don't stop until provably done"* engine. Native on Windows.
+It composes the primitives Claude Code already ships (the Stop hook, subagents, native worktrees) into a one-install plugin with **durable, git-trackable loop definitions** and a *"don't stop until provably done"* engine.
 
 **Best for goals with an executable oracle** — tests green, typecheck/lint/build pass, coverage up, migrations/codemods/refactors. Partial fit for taste-driven work via artifact-judged conditions + human checkpoints.
 
