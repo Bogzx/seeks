@@ -1,0 +1,11 @@
+{
+  "name": "seeks-local",
+  "owner": { "name": "bogdan" },
+  "plugins": [
+    {
+      "name": "seeks",
+      "source": ".",
+      "description": "Self-running, verifier-gated loops with durable .seeks/ state and native worktrees."
+    }
+  ]
+}
