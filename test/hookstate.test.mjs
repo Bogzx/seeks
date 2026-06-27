@@ -1,6 +1,6 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import { makeTempRepo, seeksRun } from './helpers.mjs'; import fs from 'node:fs';
-import { bumpFire, readHookState, isFresh, seedHeartbeat, staleHeartbeat } from '../hooks/lib/hookstate.mjs';
+import { bumpFire, readHookState, isFresh, seedHeartbeat, staleHeartbeat, resetFires } from '../hooks/lib/hookstate.mjs';
 const mk = () => { const rd = seeksRun(makeTempRepo(),'x'); fs.mkdirSync(rd,{recursive:true}); return rd; };
 test('bumpFire increments + sets heartbeat', () => {
   const rd = mk(); bumpFire(rd,'s1',1000); const hs = bumpFire(rd,'s1',2000);
@@ -12,4 +12,11 @@ test('isFresh respects ttl; stale after release', () => {
   assert.equal(isFresh(rd, 2000, 1000), false);
   seedHeartbeat(rd, 5000); staleHeartbeat(rd);
   assert.equal(isFresh(rd, 5001, 1000), false);
+});
+test('resetFires zeroes stop_fires but preserves heartbeat', () => {
+  const rd = mk(); bumpFire(rd,'s1',1000); bumpFire(rd,'s1',2000);
+  assert.equal(readHookState(rd).stop_fires, 2);
+  resetFires(rd);
+  assert.equal(readHookState(rd).stop_fires, 0);
+  assert.equal(readHookState(rd).last_heartbeat, 2000);
 });

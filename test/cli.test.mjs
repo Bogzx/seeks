@@ -31,3 +31,20 @@ test('progress-tick: close=reset, no-op=increment, reseed=reset', () => {
   run(repo,'progress-tick','ui'); s = JSON.parse(run(repo,'status-get','ui'));
   assert.equal(s.open_items,3); assert.equal(s.no_progress_count,0);
 });
+test('progress-tick: a certify (done) pass counts as progress, not stuck', () => {
+  const repo = makeTempRepo(); const rd = seed(repo,'ui',{ loop:'ui', open_items:0, no_progress_count:2, done:true });
+  // backlog empty (0 open), nothing closed, not reseeded — but done:true ⇒ progress ⇒ no_progress resets
+  run(repo,'progress-tick','ui'); const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.no_progress_count,0);
+});
+test('--help prints usage and exits 0', () => {
+  const out = run(makeTempRepo(),'--help');
+  assert.match(out, /seeks <cmd> <name>/); assert.match(out, /reset-fires/);
+});
+test('reset-fires zeroes stop_fires, keeps heartbeat', () => {
+  const repo = makeTempRepo(); const rd = seed(repo,'ui',{ loop:'ui' });
+  fs.writeFileSync(path.join(rd,'hook-state.json'), JSON.stringify({ stop_fires:4, last_heartbeat:123, session_id:'s' }));
+  run(repo,'reset-fires','ui');
+  const hs = JSON.parse(fs.readFileSync(path.join(rd,'hook-state.json'),'utf8'));
+  assert.equal(hs.stop_fires,0); assert.equal(hs.last_heartbeat,123);
+});
