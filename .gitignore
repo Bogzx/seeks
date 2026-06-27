@@ -7,3 +7,6 @@ spikes/**/run*.json
 node_modules/
 /.seeks/run/
 /.claude/worktrees/
+
+# development docs — kept local only (not published)
+/docs/
