@@ -14,6 +14,7 @@ The loop <strong>seeks</strong> its done-conditions — and doesn't stop until a
 <!-- Existence is pain to a Seeks. It seeks its done-conditions, certifies, and *poofs*. 🔵 -->
 
 ---
+## DICLAIMER: WORK IN PROGRESS - PRE ALPHA TEST - VERY EARLY BUILD - GIVE FEEDBACK
 
 ## What is it?
 
