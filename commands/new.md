@@ -4,6 +4,8 @@ argument-hint: <loop-name>
 ---
 Create loop `$0`. Self-contained; run shell via the Bash tool.
 
+> **Shell discipline:** the Bash tool's cwd **persists across calls** — never bare-`cd`. Wrap any worktree-scoped command in a subshell `( cd "$WT" && … )`, or use `git -C "$WT" …` / absolute paths. (A leaked `cd` makes later relative-path `find`/`check-ignore` resolve in the wrong tree.)
+
 1. **Intake** (one question at a time): goal; **executable done-conditions** (each: `id`, command, expected exit/output). Subjective acceptance → mark `human-required`. Refuse to proceed until ≥1 runnable check exists (or all are human-required).
 2. **Recipe** `.seeks/loops/$0/spec.md` with frontmatter `level` (default L2) and a `## Done-conditions` list.
 3. **config** — if `.seeks/config.json` is absent, create it with defaults: `{"default_level":"L2","max_iters":50,"stuck_threshold":3,"condition_reject_threshold":3,"lock_stale_ttl_sec":600,"base_ref":"<current branch from `git rev-parse --abbrev-ref HEAD`>","denylist":["**/.env","**/secrets/**",".git/**"],"roles":{"intake":{"model":"opus","effort":"high"},"analyzer":{"model":"opus","effort":"high"},"maker":{"model":"opus","effort":"high"},"verifier":{"model":"opus","effort":"max"},"triage":{"model":"sonnet","effort":"low"}}}`.

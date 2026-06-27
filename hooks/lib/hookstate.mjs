@@ -10,3 +10,4 @@ export function bumpFire(rd, sessionId, now){
 export function seedHeartbeat(rd, now){ const c = readHookState(rd) ?? { stop_fires:0, session_id:null }; write(rd, { ...c, last_heartbeat:now }); }
 export function isFresh(rd, now, ttlMs){ const h = readHookState(rd); return !!h && h.last_heartbeat!=null && (now - h.last_heartbeat) < ttlMs; }
 export function staleHeartbeat(rd){ const c = readHookState(rd); if (c) write(rd, { ...c, last_heartbeat:0 }); }
+export function resetFires(rd){ const c = readHookState(rd) ?? {}; write(rd, { ...c, stop_fires:0 }); }
