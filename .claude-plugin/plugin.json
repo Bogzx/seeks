@@ -1,0 +1,4 @@
+{
+  "name": "seeks",
+  "description": "Self-running, verifier-gated loops with durable .seeks/ state and native worktrees."
+}
