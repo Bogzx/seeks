@@ -1,0 +1,9 @@
+# spike run artifacts (throwaway; regenerated on each run)
+spikes/**/counter.log
+spikes/**/progress.txt
+spikes/**/run*.json
+
+# build / runtime (once the plugin is scaffolded)
+node_modules/
+/.seeks/run/
+/.claude/worktrees/
