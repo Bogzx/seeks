@@ -33,11 +33,12 @@ It composes the primitives Claude Code already ships (the Stop hook, subagents, 
 
 ## Quick start
 
-**1. Install the plugin** (local dev — points at your live checkout):
+**1. Install** — from GitHub, on any Claude Code instance:
 ```
-claude --plugin-dir "/path/to/seeks"
+/plugin marketplace add Bogzx/seeks
+/plugin install seeks@seeks
 ```
-*(or `/plugin marketplace add /path/to/seeks` → `/plugin install seeks@seeks-local` → `/reload-plugins`)*
+then `/reload-plugins` (or restart). *Hacking on it locally? `claude --plugin-dir "/path/to/seeks"` loads it straight from your working tree instead.*
 
 **2. Create a loop** — interview for the goal + executable done-conditions:
 ```
