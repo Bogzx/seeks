@@ -38,14 +38,17 @@ switch (cmd) {
     let dry = s.dry_sweeps ?? 0; let dry_lenses = [...(s.dry_lenses ?? [])];
     if (found > 0) { dry = 0; dry_lenses = []; }                                  // found → re-seed, reset the dry streak
     else if (!lens || !dry_lenses.includes(lens)) { dry += 1; if (lens) dry_lenses.push(lens); } // a DISTINCT lens (or legacy no-lens) advances; a repeat does not
-    writeStatusAtomic(rd, { ...s, dry_sweeps: dry, dry_lenses, lenses_used,
+    const sweep_found_total = (s.sweep_found_total ?? 0) + (found > 0 ? found : 0);  // cumulative bugs found via sweeps — a finding sweep is progress (even report-only, no reseed)
+    writeStatusAtomic(rd, { ...s, dry_sweeps: dry, dry_lenses, lenses_used, sweep_found_total,
       last_sweep: found > 0 ? `${found} found` : `dry ${dry}/${s.min_dry_sweeps ?? 0}${lens ? ` (${lens})` : ''}`, updated_at: new Date().toISOString() }); break; }
   case 'sweep-next-lens': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; out(nextLens(s.lenses_used ?? [], s.sweep_lenses ?? DEFAULT_LENSES)); break; }
   case 'progress-tick': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; const open = countOpen(rd);
     const prev = s.open_items ?? open; const closedDelta = prev - open; const reseeded = open > prev;
     const dryProgressed = (s.dry_sweeps ?? 0) > (s.dry_sweeps_prev ?? 0);  // a dry sweep is convergence → progress (F7-class)
-    const progressed = closedDelta > 0 || reseeded || dryProgressed || s.done === true;
+    const foundProgressed = (s.sweep_found_total ?? 0) > (s.sweep_found_total_prev ?? 0);  // a sweep that FOUND bugs is progress, even if it didn't reseed the backlog (report-only)
+    const progressed = closedDelta > 0 || reseeded || dryProgressed || foundProgressed || s.done === true;
     writeStatusAtomic(rd, { ...s, open_items_prev: prev, open_items: open, dry_sweeps_prev: s.dry_sweeps ?? 0,
+      sweep_found_total_prev: s.sweep_found_total ?? 0,
       items_closed_total: (s.items_closed_total ?? 0) + Math.max(0, closedDelta),
       no_progress_count: progressed ? 0 : (s.no_progress_count ?? 0) + 1, updated_at: new Date().toISOString() }); break; }
   case 'lock-acquire': { const rd = rdOf(a[0]); const ttl = (readStatus(rd)?.lock_stale_ttl_sec ?? 600) * 1000;
