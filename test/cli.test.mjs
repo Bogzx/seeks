@@ -39,7 +39,23 @@ test('progress-tick: a certify (done) pass counts as progress, not stuck', () =>
 });
 test('--help prints usage and exits 0', () => {
   const out = run(makeTempRepo(),'--help');
-  assert.match(out, /seeks <cmd> <name>/); assert.match(out, /reset-fires/);
+  assert.match(out, /seeks <cmd> <name>/); assert.match(out, /reset-fires/); assert.match(out, /log-add/);
+});
+test('init prints ok and writes status', () => {
+  const repo = makeTempRepo();
+  const out = run(repo,'init','ui','{"loop":"ui","open_items":0}');
+  assert.equal(out, 'ok');
+  const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.loop,'ui');
+});
+test('log-add appends lines to log.md (create-on-write)', () => {
+  const repo = makeTempRepo(); const rd = seed(repo,'ui',{ loop:'ui' });
+  run(repo,'log-add','ui','pass 1 — edited foo.ts');
+  run(repo,'log-add','ui','pass 2 — ran verifier');
+  const log = fs.readFileSync(path.join(rd,'log.md'),'utf8');
+  assert.match(log, /pass 1 — edited foo\.ts/);
+  assert.match(log, /pass 2 — ran verifier/);
+  assert.equal(log.trim().split('\n').length, 2);
 });
 test('reset-fires zeroes stop_fires, keeps heartbeat', () => {
   const repo = makeTempRepo(); const rd = seed(repo,'ui',{ loop:'ui' });

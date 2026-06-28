@@ -32,6 +32,20 @@ It composes the primitives Claude Code already ships (the Stop hook, subagents, 
 | impossible task | ⏸ **needs-human** | verifier rejects until `condition_rejects` hits its threshold |
 | never-converging | ⛔ **max-iters** | the hook's `stop_fires` reaches the iteration budget |
 
+## Requirements
+
+`seeks` is 100% Node — the hooks, the CLI, and the tests are all `.mjs`. Before installing:
+
+- **Node ≥ 18** and **git**, both on the **hook** `PATH`. Claude Code's installer does **not** bundle Node, so if `node -v` fails, install it first.
+- **Install Node *system-wide*, not via nvm/fnm/asdf.** Version managers only add `node` to *interactive* shells; Claude Code runs hooks in a *non-interactive* subprocess that then can't find it — every stop fails with **`Stop hook error: … node not found`** and the loop never drives. System installs (NodeSource / your distro package) land in `/usr/bin`–`/usr/local/bin`, which hooks always see.
+
+Already on nvm/fnm and hitting "node not found"? Any one of these fixes it:
+- symlink where hooks look: `sudo ln -s "$(command -v node)" /usr/local/bin/node`
+- pin `PATH` in `~/.claude/settings.json` → `"env": { "PATH": "/your/node/bin:/usr/bin:/bin" }`
+- launch `claude` from a shell where `node -v` already works
+
+`/seeks:doctor` checks `node`/`git` and prints this exact remedy.
+
 ## Quick start
 
 **1. Install** — from GitHub, on any Claude Code instance:
