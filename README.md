@@ -6,9 +6,7 @@
 
 <p align="center"><em>A self-driving loop for Claude Code that won't stop until a separate verifier agrees the job is actually done.</em></p>
 
-<p align="center">
-  <code>Node ≥18</code> · <code>zero runtime deps</code> · <code>nothing pushed, ever</code> · <code>60/60 tests</code>
-</p>
+
 
 <!-- I'm Mr. Seeks! Look at me! A Seeks is summoned for one goal, seeks it, certifies it, and poofs. 🔵 -->
 
