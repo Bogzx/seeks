@@ -34,8 +34,15 @@ Optional env: `SEEKS_E2E_MODEL` (default `sonnet`), `SEEKS_E2E_CLAUDE_BIN` (defa
 
 LLM runs are non-deterministic: invariants assert **outcomes**, and a divergent or oracle-cheating run surfaces as a FAIL with the actual state — never a silent pass. `done`/`dry-sweep` are the reliable B-proof; the three adversarial scenarios close F11 coverage on a best-effort live basis.
 
-### Overnight real-repo demo
-Scaffold a `fix-all-bugs` loop on **a real Python repo** (`ruff` + `mypy` + `pytest` oracle, `min_dry_sweeps:2`, large `max_iters`) on a `seeks/` branch and drive it headless overnight; capture banners + final status. seeks never auto-merges — review the `seeks/fix-all-bugs` branch by hand.
+### Real-repo runner (`realrun.mjs`) — creative bug-hunt on a live project
+`test/e2e/realrun.mjs` drives a **creative bug-hunt** loop against a real repo (not a fixture): it scaffolds an armed loop on a `seeks/<name>` worktree, seeds one creative-review item per source module, and drives a `claude -p` child that READS each module hunting real defects — `ruff`+`mypy` are the regression floor, until-dry on *findings* (`min_dry_sweeps:2`).
+```
+node test/e2e/realrun.mjs                 # DRY-RUN: scaffold + print the plan (free)
+SEEKS_E2E=1 node test/e2e/realrun.mjs     # REAL: drive + report (costs usage)
+```
+Knobs (env): `SEEKS_REPO` (target repo root, required), `SEEKS_NAME`, `SEEKS_SRC` (dir to seed modules from), `SEEKS_VENV` (Scripts dir with `ruff.exe`/`mypy.exe`), `SEEKS_E2E_MODEL` (default `sonnet`), `SEEKS_BUDGET`, `SEEKS_MAX_ITERS`. Adapt the spec/floor per repo/language. seeks never auto-merges; review the `seeks/<name>` branch by hand.
+
+**What a successful run looks like:** in a representative run against a real Python repo (sonnet, `max_iters 18`, `$10` cap), the loop reached **`done` via 2 dry sweeps after ~15 passes**, finding **multiple real runtime-crash bugs purely by reading the code** — naive-vs-aware `datetime` `TypeError`s, `KeyError` edge cases, a relative-href scraper crash, unguarded `ValueError`s — with the `ruff`+`mypy` floor clean before and after and the full test suite still green.
 
 ---
 
