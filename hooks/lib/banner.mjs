@@ -13,5 +13,6 @@ export function composeBanner(status, decision, stopFires, opts = {}){
     return `${head} · stopped`;
   }
   const change = s.last_change ?? '(no change)'; const verdict = s.last_verdict ? ` · verify: ${s.last_verdict}` : '';
-  return `${head} · items ${s.open_items_prev ?? s.open_items}→${s.open_items} · ${change}${verdict} · continuing`;
+  const sweep = (s.min_dry_sweeps ?? 0) > 0 ? ` · sweep ${s.dry_sweeps ?? 0}/${s.min_dry_sweeps} dry` : '';
+  return `${head} · items ${s.open_items_prev ?? s.open_items}→${s.open_items}${sweep} · ${change}${verdict} · continuing`;
 }
