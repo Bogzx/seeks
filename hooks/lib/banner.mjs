@@ -13,6 +13,7 @@ export function composeBanner(status, decision, stopFires, opts = {}){
     return `${head} · stopped`;
   }
   const change = s.last_change ?? '(no change)'; const verdict = s.last_verdict ? ` · verify: ${s.last_verdict}` : '';
-  const sweep = (s.min_dry_sweeps ?? 0) > 0 ? ` · sweep ${s.dry_sweeps ?? 0}/${s.min_dry_sweeps} dry` : '';
+  const lens = s.lenses_used?.length ? ` (lens: ${s.lenses_used[s.lenses_used.length - 1]})` : '';
+  const sweep = (s.min_dry_sweeps ?? 0) > 0 ? ` · sweep ${s.dry_sweeps ?? 0}/${s.min_dry_sweeps} dry${lens}` : '';
   return `${head} · items ${s.open_items_prev ?? s.open_items}→${s.open_items}${sweep} · ${change}${verdict} · continuing`;
 }

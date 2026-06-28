@@ -13,6 +13,12 @@ test('banner shows sweep segment only when min_dry_sweeps set', () => {
   assert.match(composeBanner({...s, min_dry_sweeps:2, dry_sweeps:1},{action:'block',stopKind:null},14), /sweep 1\/2 dry/);
   assert.ok(!composeBanner(s,{action:'block',stopKind:null},14).includes('sweep'));
 });
+test('banner sweep segment shows the active (last-used) lens', () => {
+  assert.match(composeBanner({...s, min_dry_sweeps:2, dry_sweeps:1, lenses_used:['concurrency','boundary']},
+    {action:'block',stopKind:null},14), /sweep 1\/2 dry \(lens: boundary\)/);
+  const noLens = composeBanner({...s, min_dry_sweeps:2, dry_sweeps:1},{action:'block',stopKind:null},14);
+  assert.match(noLens, /sweep 1\/2 dry/); assert.ok(!noLens.includes('lens:'));
+});
 test('color is opt-in: default stays plain, {color:true} adds ANSI', () => {
   const plain = composeBanner(s,{action:'allow',stopKind:'done'},12);
   assert.ok(!plain.includes('\x1b['), 'default banner must be plain (no ANSI) — verified-plain channel, no regression');
