@@ -80,6 +80,13 @@ test('progress-tick: a dry sweep counts as progress (no false stuck)', () => {
   s = JSON.parse(run(repo,'status-get','ui'));
   assert.equal(s.dry_sweeps,2); assert.equal(s.no_progress_count,0);
 });
+test('progress-tick: a sweep that FINDS bugs counts as progress (report-only, no reseed)', () => {
+  const repo = makeTempRepo(); seed(repo,'ui',{ loop:'ui', open_items:0, no_progress_count:0, dry_sweeps:0, dry_sweeps_prev:0, min_dry_sweeps:2 });
+  run(repo,'sweep-tick','ui','4','concurrency'); run(repo,'progress-tick','ui'); // found 4, backlog stays empty (report-only)
+  const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.dry_sweeps,0, 'found → dry reset');
+  assert.equal(s.no_progress_count,0, 'finding bugs IS progress — must not count toward stuck');
+});
 test('sweep-tick with lens: distinct lenses advance dry; a repeat does NOT', () => {
   const repo = makeTempRepo(); seed(repo,'ui',{ loop:'ui', dry_sweeps:0, min_dry_sweeps:2 });
   run(repo,'sweep-tick','ui','0','concurrency'); let s = JSON.parse(run(repo,'status-get','ui'));
