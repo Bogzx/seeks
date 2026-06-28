@@ -107,3 +107,25 @@ test('sweep-next-lens rotates through the set', () => {
   const repo = makeTempRepo(); seed(repo,'ui',{ loop:'ui', lenses_used:['concurrency'] });
   assert.equal(run(repo,'sweep-next-lens','ui'), 'error-handling');
 });
+test('latest returns the most-recently-updated loop', () => {
+  const repo = makeTempRepo();
+  seed(repo,'old',{ loop:'old', updated_at:'2026-01-01T00:00:00Z' });
+  seed(repo,'newer',{ loop:'newer', updated_at:'2026-06-01T00:00:00Z' });
+  assert.equal(run(repo,'latest'), 'newer');
+});
+test('base-record + base-check track base-branch movement', () => {
+  const repo = makeTempRepo();
+  fs.writeFileSync(path.join(repo,'a.txt'),'1'); execFileSync('git',['add','-A'],{cwd:repo}); execFileSync('git',['commit','-q','-m','init'],{cwd:repo});
+  const base = execFileSync('git',['rev-parse','--abbrev-ref','HEAD'],{cwd:repo,encoding:'utf8'}).trim();
+  seed(repo,'ui',{ loop:'ui', base_ref: base });
+  run(repo,'base-record','ui');
+  const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.ok(s.base_sha && s.base_sha.length >= 7);
+  assert.equal(run(repo,'base-check','ui'), 'current');
+  fs.writeFileSync(path.join(repo,'a.txt'),'2'); execFileSync('git',['add','-A'],{cwd:repo}); execFileSync('git',['commit','-q','-m','move'],{cwd:repo});
+  assert.equal(run(repo,'base-check','ui'), 'moved');
+});
+test('base-check returns unknown when base_sha absent', () => {
+  const repo = makeTempRepo(); seed(repo,'ui',{ loop:'ui', base_ref:'main' });
+  assert.equal(run(repo,'base-check','ui'), 'unknown');
+});
