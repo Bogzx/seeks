@@ -4,6 +4,7 @@ import { runDir, primaryRoot } from '../hooks/lib/resolve.mjs';
 import { acquire, release } from '../hooks/lib/lock.mjs';
 import { readHookState, resetFires } from '../hooks/lib/hookstate.mjs';
 import { composeBanner } from '../hooks/lib/banner.mjs';
+import { nextLens, DEFAULT_LENSES } from '../hooks/lib/lenses.mjs';
 const [cmd, ...a] = process.argv.slice(2);
 const out = (x) => process.stdout.write(typeof x === 'string' ? x : JSON.stringify(x));
 const backlog = (rd) => path.join(rd,'backlog.md');
@@ -12,9 +13,9 @@ const rdOf = (name) => runDir(name);
 const USAGE = `seeks <cmd> <name> [args]
   init <name> <json>            status-get <name>             status-set <name> <patch-json>
   condition-reject <name> <id>  backlog-add <name> <task...>  backlog-count <name>
-  log-add <name> <line...>      sweep-tick <name> <found>     progress-tick <name>
-  reset-fires <name>            lock-acquire <name>           lock-release <name>
-  gc <name>                     banner <name> <action> [stopKind]`;
+  log-add <name> <line...>      sweep-tick <name> <found> [lens]   sweep-next-lens <name>
+  progress-tick <name>          reset-fires <name>                 lock-acquire <name>
+  lock-release <name>           gc <name>                          banner <name> <action> [stopKind]`;
 if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') { process.stdout.write(USAGE + '\n'); process.exit(0); }
 try {
 switch (cmd) {
@@ -32,10 +33,14 @@ switch (cmd) {
   case 'backlog-add': fs.appendFileSync(backlog(rdOf(a[0])), `- [ ] ${a.slice(1).join(' ')}\n`); break;
   case 'backlog-count': out(String(countOpen(rdOf(a[0])))); break;
   case 'log-add': fs.appendFileSync(path.join(rdOf(a[0]),'log.md'), `${a.slice(1).join(' ')}\n`); break;  // F15: sanctioned log append (create-on-write)
-  case 'sweep-tick': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; const found = parseInt(a[1] ?? '0',10) || 0;
-    const dry = found > 0 ? 0 : (s.dry_sweeps ?? 0) + 1;  // a discovery sweep: found→re-seed (reset), empty→converge
-    writeStatusAtomic(rd, { ...s, dry_sweeps: dry,
-      last_sweep: found > 0 ? `${found} found` : `dry ${dry}/${s.min_dry_sweeps ?? 0}`, updated_at: new Date().toISOString() }); break; }
+  case 'sweep-tick': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; const found = parseInt(a[1] ?? '0',10) || 0; const lens = a[2] || null;
+    const lenses_used = lens ? [...(s.lenses_used ?? []), lens] : (s.lenses_used ?? []);
+    let dry = s.dry_sweeps ?? 0; let dry_lenses = [...(s.dry_lenses ?? [])];
+    if (found > 0) { dry = 0; dry_lenses = []; }                                  // found → re-seed, reset the dry streak
+    else if (!lens || !dry_lenses.includes(lens)) { dry += 1; if (lens) dry_lenses.push(lens); } // a DISTINCT lens (or legacy no-lens) advances; a repeat does not
+    writeStatusAtomic(rd, { ...s, dry_sweeps: dry, dry_lenses, lenses_used,
+      last_sweep: found > 0 ? `${found} found` : `dry ${dry}/${s.min_dry_sweeps ?? 0}${lens ? ` (${lens})` : ''}`, updated_at: new Date().toISOString() }); break; }
+  case 'sweep-next-lens': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; out(nextLens(s.lenses_used ?? [], s.sweep_lenses ?? DEFAULT_LENSES)); break; }
   case 'progress-tick': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; const open = countOpen(rd);
     const prev = s.open_items ?? open; const closedDelta = prev - open; const reseeded = open > prev;
     const dryProgressed = (s.dry_sweeps ?? 0) > (s.dry_sweeps_prev ?? 0);  // a dry sweep is convergence → progress (F7-class)
