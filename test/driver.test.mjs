@@ -1,5 +1,14 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
-import { buildArgs, parseStream } from './e2e/driver.mjs';
+import { buildArgs, parseStream, terminalFromStatus } from './e2e/driver.mjs';
+
+test('terminalFromStatus derives the terminal from status (authoritative, banner-independent)', () => {
+  assert.equal(terminalFromStatus({ done:true, verifier_certified:true, min_dry_sweeps:2, dry_sweeps:2 }), 'done');
+  assert.equal(terminalFromStatus({ done:true, verifier_certified:true, min_dry_sweeps:2, dry_sweeps:1 }), null); // not dry yet
+  assert.equal(terminalFromStatus({ needs_human:true }), 'needs_human');
+  assert.equal(terminalFromStatus({ no_progress_count:3, stuck_threshold:3 }), 'stuck');
+  assert.equal(terminalFromStatus({ max_iters:5 }, { stop_fires:5 }), 'max_iters');
+  assert.equal(terminalFromStatus({ open_items:2 }, { stop_fires:1 }), null); // still working
+});
 
 test('buildArgs has the headless-loop flags', () => {
   const a = buildArgs({ prompt:'go', pluginDir:'/p', maxTurns:200, sessionId:'sid', model:'sonnet' });

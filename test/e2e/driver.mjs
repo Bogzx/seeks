@@ -21,6 +21,16 @@ export function buildArgs(o){
 // Robust to the exact stream-json shape: it deep-scans every string field for a seeks
 // banner (▸ <loop> · pass N …) rather than assuming where systemMessage lands, finds the
 // final result event, and reports the last terminal banner if one appeared.
+// terminalFromStatus(status, hookState) → 'done'|'needs_human'|'stuck'|'max_iters'|null
+// Authoritative terminal detection straight from status.json (banner-independent): a loop that
+// disarms on certify emits no terminal banner, so assertions must read status, not the stream.
+// Reuses the gate's decide() (forcing armed so terminals evaluate) to stay DRY.
+import { decide } from '../../hooks/lib/gate.mjs';
+export function terminalFromStatus(status = {}, hookState = {}){
+  const d = decide({ ...status, armed: true }, hookState);
+  return d.action === 'allow' ? d.stopKind : null;
+}
+
 const BANNER = /▸ .+? · pass \d+[^\n"]*/;
 export function parseStream(text){
   const events = [];

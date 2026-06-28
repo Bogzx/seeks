@@ -12,7 +12,7 @@
 import fs from 'node:fs'; import path from 'node:path';
 import { spawnSync } from 'node:child_process'; import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { buildArgs, parseStream } from './driver.mjs';
+import { buildArgs, parseStream, terminalFromStatus } from './driver.mjs';
 import { scenarios } from './scenarios.mjs';
 
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -45,14 +45,15 @@ const rd = path.join(ctx.repoRoot, '.seeks', 'run', ctx.name);
 const status = JSON.parse(fs.readFileSync(path.join(rd, 'status.json'), 'utf8'));
 let hook = {}; try { hook = JSON.parse(fs.readFileSync(path.join(rd, 'hook-state.json'), 'utf8')); } catch {}
 
+const kind = terminalFromStatus(status, hook);   // authoritative — banner-independent (a done loop may emit no banner)
 const fails = [];
-if (sc.expectTerminal && !(parsed.terminal && sc.expectTerminal.test(parsed.terminal)))
-  fails.push(`terminal banner ${JSON.stringify(parsed.terminal)} did not match ${sc.expectTerminal}`);
+if (sc.expectKind && kind !== sc.expectKind)
+  fails.push(`terminal ${JSON.stringify(kind)} (from status) !== expected ${JSON.stringify(sc.expectKind)}`);
 for (const inv of sc.invariants(status, hook, parsed)) if (!inv.ok) fails.push(inv.msg);
 
 console.log(`\n=== scenario ${name} ===`);
 console.log(`banners (${parsed.banners.length}):`); for (const b of parsed.banners) console.log('  ' + b);
-console.log(`terminal: ${parsed.terminal}`);
+console.log(`terminal: ${kind} (status) | banner: ${parsed.terminal}`);
 console.log(`status: done=${status.done} certified=${status.verifier_certified} dry=${status.dry_sweeps} ` +
             `no_progress=${status.no_progress_count} needs_human=${status.needs_human} stop_fires=${hook.stop_fires}`);
 if (res.status !== 0) console.log(`(claude exit code: ${res.status})`);

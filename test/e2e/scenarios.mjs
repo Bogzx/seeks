@@ -47,7 +47,7 @@ const tst = (fn, expr) => `import { test } from 'node:test'; import assert from 
 export const scenarios = {
   // ---- deterministic-ish: prove B ----
   done: {
-    expectTerminal: /✅ done/, maxTurns: 120, maxBudgetUsd: 3,
+    expectKind: 'done', maxTurns: 120, maxBudgetUsd: 3,
     setup(){
       const r = initRepo();
       W(r,'package.json', pkg('fix-done','node --test'));
@@ -65,7 +65,7 @@ export const scenarios = {
     ],
   },
   'dry-sweep': {
-    expectTerminal: /✅ done/, maxTurns: 200, maxBudgetUsd: 5,
+    expectKind: 'done', maxTurns: 200, maxBudgetUsd: 5,
     setup(){
       const r = initRepo();
       W(r,'package.json', pkg('fix-all','node --test'));
@@ -85,7 +85,7 @@ export const scenarios = {
   },
   // ---- adversarial best-effort: close F11 ----
   'needs-human': {
-    expectTerminal: /needs-human/, maxTurns: 120, maxBudgetUsd: 3,
+    expectKind: 'needs_human', maxTurns: 120, maxBudgetUsd: 3,
     setup(){
       const r = initRepo();
       W(r,'package.json', pkg('impossible','node -e "process.exit(1)"'));
@@ -98,7 +98,7 @@ export const scenarios = {
     invariants:(s)=>[ { ok: s.needs_human===true, msg:`expected needs_human=true, got ${s.needs_human}` } ],
   },
   'max-iters': {
-    expectTerminal: /halt: max-iters/, maxTurns: 80, maxBudgetUsd: 3,
+    expectKind: 'max_iters', maxTurns: 80, maxBudgetUsd: 3,
     setup(){
       const r = initRepo();
       W(r,'package.json', pkg('never','node -e "process.exit(1)"'));
@@ -110,7 +110,7 @@ export const scenarios = {
     invariants:(s, hook)=>[ { ok: (hook.stop_fires??0) >= 3, msg:`expected stop_fires>=max_iters(3), got ${hook.stop_fires}` } ],
   },
   stuck: {
-    expectTerminal: /halt: stuck/, maxTurns: 80, maxBudgetUsd: 3,
+    expectKind: 'stuck', maxTurns: 80, maxBudgetUsd: 3,
     setup(){
       const r = initRepo();
       W(r,'package.json', pkg('stuck','node --test'));
