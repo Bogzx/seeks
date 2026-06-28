@@ -64,3 +64,19 @@ test('reset-fires zeroes stop_fires, keeps heartbeat', () => {
   const hs = JSON.parse(fs.readFileSync(path.join(rd,'hook-state.json'),'utf8'));
   assert.equal(hs.stop_fires,0); assert.equal(hs.last_heartbeat,123);
 });
+test('sweep-tick: found resets dry to 0; empty increments dry', () => {
+  const repo = makeTempRepo(); seed(repo,'ui',{ loop:'ui', dry_sweeps:1, min_dry_sweeps:2 });
+  run(repo,'sweep-tick','ui','3'); let s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.dry_sweeps,0); assert.match(s.last_sweep, /3 found/);
+  run(repo,'sweep-tick','ui','0'); s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.dry_sweeps,1); assert.match(s.last_sweep, /dry 1\/2/);
+});
+test('progress-tick: a dry sweep counts as progress (no false stuck)', () => {
+  const repo = makeTempRepo(); seed(repo,'ui',{ loop:'ui', open_items:0, no_progress_count:0, dry_sweeps:0, dry_sweeps_prev:0, min_dry_sweeps:2 });
+  run(repo,'sweep-tick','ui','0'); run(repo,'progress-tick','ui');
+  let s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.dry_sweeps,1); assert.equal(s.no_progress_count,0);
+  run(repo,'sweep-tick','ui','0'); run(repo,'progress-tick','ui');
+  s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.dry_sweeps,2); assert.equal(s.no_progress_count,0);
+});

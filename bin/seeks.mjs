@@ -12,9 +12,9 @@ const rdOf = (name) => runDir(name);
 const USAGE = `seeks <cmd> <name> [args]
   init <name> <json>            status-get <name>             status-set <name> <patch-json>
   condition-reject <name> <id>  backlog-add <name> <task...>  backlog-count <name>
-  log-add <name> <line...>      progress-tick <name>          reset-fires <name>
-  lock-acquire <name>           lock-release <name>           gc <name>
-  banner <name> <action> [stopKind]`;
+  log-add <name> <line...>      sweep-tick <name> <found>     progress-tick <name>
+  reset-fires <name>            lock-acquire <name>           lock-release <name>
+  gc <name>                     banner <name> <action> [stopKind]`;
 if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') { process.stdout.write(USAGE + '\n'); process.exit(0); }
 try {
 switch (cmd) {
@@ -32,10 +32,15 @@ switch (cmd) {
   case 'backlog-add': fs.appendFileSync(backlog(rdOf(a[0])), `- [ ] ${a.slice(1).join(' ')}\n`); break;
   case 'backlog-count': out(String(countOpen(rdOf(a[0])))); break;
   case 'log-add': fs.appendFileSync(path.join(rdOf(a[0]),'log.md'), `${a.slice(1).join(' ')}\n`); break;  // F15: sanctioned log append (create-on-write)
+  case 'sweep-tick': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; const found = parseInt(a[1] ?? '0',10) || 0;
+    const dry = found > 0 ? 0 : (s.dry_sweeps ?? 0) + 1;  // a discovery sweep: found→re-seed (reset), empty→converge
+    writeStatusAtomic(rd, { ...s, dry_sweeps: dry,
+      last_sweep: found > 0 ? `${found} found` : `dry ${dry}/${s.min_dry_sweeps ?? 0}`, updated_at: new Date().toISOString() }); break; }
   case 'progress-tick': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; const open = countOpen(rd);
     const prev = s.open_items ?? open; const closedDelta = prev - open; const reseeded = open > prev;
-    const progressed = closedDelta > 0 || reseeded || s.done === true;  // a verifier certify (done) pass counts as progress (F7)
-    writeStatusAtomic(rd, { ...s, open_items_prev: prev, open_items: open,
+    const dryProgressed = (s.dry_sweeps ?? 0) > (s.dry_sweeps_prev ?? 0);  // a dry sweep is convergence → progress (F7-class)
+    const progressed = closedDelta > 0 || reseeded || dryProgressed || s.done === true;
+    writeStatusAtomic(rd, { ...s, open_items_prev: prev, open_items: open, dry_sweeps_prev: s.dry_sweeps ?? 0,
       items_closed_total: (s.items_closed_total ?? 0) + Math.max(0, closedDelta),
       no_progress_count: progressed ? 0 : (s.no_progress_count ?? 0) + 1, updated_at: new Date().toISOString() }); break; }
   case 'lock-acquire': { const rd = rdOf(a[0]); const ttl = (readStatus(rd)?.lock_stale_ttl_sec ?? 600) * 1000;
