@@ -13,7 +13,7 @@ const match = matchLoopByCwd(sDir, cwd);
 if (!match) process.exit(0);
 const hs = bumpFire(match.runDir, input.session_id ?? null, Date.now());  // own counter + heartbeat
 const d = decide(match.status, hs);
-const banner = composeBanner(match.status, d, hs.stop_fires);
+const banner = composeBanner(match.status, d, hs.stop_fires, { color: !!process.env.SEEKS_BANNER_COLOR });
 process.stdout.write(d.action === 'block'
   ? JSON.stringify({ decision:'block', reason:d.reason, systemMessage:banner })
   : JSON.stringify({ systemMessage: banner }));

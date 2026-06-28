@@ -14,3 +14,12 @@ test('blocks for an armed loop containing cwd', () => {
   assert.match(out.systemMessage, /pass 1 · .* continuing/);
   assert.equal(JSON.parse(fs.readFileSync(path.join(rd,'hook-state.json'))).stop_fires, 1);
 });
+test('allows + halts on stuck when no_progress_count ≥ stuck_threshold', () => {
+  const repo = makeTempRepo(); const wt = path.join(repo,'.claude','worktrees','st'); fs.mkdirSync(wt,{recursive:true});
+  const rd = path.join(repo,'.seeks','run','st'); fs.mkdirSync(rd,{recursive:true});
+  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify({ loop:'st', armed:true, done:false, worktree_path:wt,
+    open_items:1, max_iters:50, stuck_threshold:3, no_progress_count:3 }));
+  const out = JSON.parse(run(wt));
+  assert.ok(!out.decision, 'stuck is a terminal allow — must NOT block');
+  assert.match(out.systemMessage, /halt: stuck \(3 no-progress\)/);
+});
