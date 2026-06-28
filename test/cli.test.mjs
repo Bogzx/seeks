@@ -80,3 +80,23 @@ test('progress-tick: a dry sweep counts as progress (no false stuck)', () => {
   s = JSON.parse(run(repo,'status-get','ui'));
   assert.equal(s.dry_sweeps,2); assert.equal(s.no_progress_count,0);
 });
+test('sweep-tick with lens: distinct lenses advance dry; a repeat does NOT', () => {
+  const repo = makeTempRepo(); seed(repo,'ui',{ loop:'ui', dry_sweeps:0, min_dry_sweeps:2 });
+  run(repo,'sweep-tick','ui','0','concurrency'); let s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.dry_sweeps,1); assert.deepEqual(s.dry_lenses,['concurrency']);
+  run(repo,'sweep-tick','ui','0','concurrency'); s = JSON.parse(run(repo,'status-get','ui')); // repeat → no advance
+  assert.equal(s.dry_sweeps,1); assert.deepEqual(s.dry_lenses,['concurrency']);
+  run(repo,'sweep-tick','ui','0','boundary'); s = JSON.parse(run(repo,'status-get','ui'));   // distinct → advance
+  assert.equal(s.dry_sweeps,2); assert.deepEqual(s.dry_lenses,['concurrency','boundary']);
+  assert.deepEqual(s.lenses_used,['concurrency','concurrency','boundary']);
+  assert.match(s.last_sweep, /\(boundary\)/);
+});
+test('sweep-tick: found resets the dry streak + dry_lenses', () => {
+  const repo = makeTempRepo(); seed(repo,'ui',{ loop:'ui', dry_sweeps:2, dry_lenses:['concurrency','boundary'], min_dry_sweeps:2 });
+  run(repo,'sweep-tick','ui','3','serialization'); const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.dry_sweeps,0); assert.deepEqual(s.dry_lenses,[]);
+});
+test('sweep-next-lens rotates through the set', () => {
+  const repo = makeTempRepo(); seed(repo,'ui',{ loop:'ui', lenses_used:['concurrency'] });
+  assert.equal(run(repo,'sweep-next-lens','ui'), 'error-handling');
+});
