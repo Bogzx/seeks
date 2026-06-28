@@ -8,7 +8,7 @@
 The loop <strong>seeks</strong> its done-conditions — and doesn't stop until a separate verifier says they're met (or a hook-owned backstop halts it).</p>
 
 <p align="center">
-  <code>Node ≥18</code> · <code>zero runtime deps</code> · <code>git worktrees</code> · <code>35/35 tests</code>
+  <code>Node ≥18</code> · <code>zero runtime deps</code> · <code>git worktrees</code> · <code>60/60 tests</code>
 </p>
 
 <!-- Existence is pain to a Seeks. It seeks its done-conditions, certifies, and *poofs*. 🔵 -->
@@ -75,14 +75,26 @@ Each pass prints a banner: `▸ my-loop · pass 3 · items 9→7 · edited Butto
 
 | Command | What it does |
 |---|---|
-| `/seeks:new <name>` | interview → spec + done-conditions, analyze, create worktree, scaffold |
-| `/seeks:start <name>` | arm + enter the worktree + drive the loop |
-| `/seeks:status [name]` | show loop state + backlog counts |
+| `/seeks:new <goal>` | plain-English goal → **auto-named** loop; interview for done-conditions, analyze, scaffold |
+| `/seeks:start [name]` | arm + enter the worktree + drive the loop (no name = the **most-recent** loop; refreshes a stale base) |
+| `/seeks:status [name]` | show loop state, **level**, + backlog counts |
 | `/seeks:add <name> <task…>` | append a backlog item |
 | `/seeks:stop <name>` | disarm so the session can end cleanly |
 | `/seeks:harvest [name]` | list finished loops with branch diffs for review |
 | `/seeks:delete <name>` | tear down worktree + branch + run state |
 | `/seeks:doctor` | health / regression check |
+
+## What it does to your code — *levels*
+
+Every loop runs at a **level** that bounds what it may do (set in `spec.md` frontmatter; `/seeks:new` tells you which and lets you choose):
+
+| Level | What it does to your code | Pushes / merges? |
+|---|---|---|
+| **L1** | **report only** — reads and reports findings, makes **no edits** | no |
+| **L2** *(default)* | **edits + commits** on an isolated `seeks/<name>` branch in its own worktree | **never** |
+| **L3** | autonomous (push / bypass) | *not in v1* |
+
+**seeks never pushes or merges for you.** Your `main` is untouched — all work happens on `seeks/<name>`. When a loop finishes, `/seeks:harvest` shows you the diff and *recommends* review; **you** decide whether to merge.
 
 ## How it works — *dumb gate, smart agent*
 
@@ -101,7 +113,7 @@ seeks/
 ├── bin/seeks.mjs     name-based, atomic state CLI
 ├── skills/loop/      per-pass protocol (/seeks:loop)
 ├── commands/         the 8 /seeks:* commands
-├── test/             35 node:test unit tests + e2e fixture
+├── test/             60 node:test unit tests + headless e2e harness
 └── docs/             DESIGN · PLAN · FINDINGS
 ```
 
@@ -109,7 +121,7 @@ Only the **definition** is git-tracked (`.seeks/loops/<name>/spec.md`, `.seeks/c
 
 ## Status
 
-**v1.** 35/35 unit tests; all three terminal states demonstrated end-to-end against deliberately-built fixtures, with anti-cheat clean across every verifier round. Honest open items: the `stuck` path + a compaction run.
+**v1.** 60/60 unit tests; all three terminal states demonstrated end-to-end against deliberately-built fixtures, with anti-cheat clean across every verifier round, plus a real headless opus bug-hunt on a 349-file C# codebase (36 findings, certified via two dry sweeps).
 
 ---
 
