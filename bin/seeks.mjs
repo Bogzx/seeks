@@ -1,6 +1,6 @@
 import fs from 'node:fs'; import path from 'node:path'; import { execFileSync } from 'node:child_process';
 import { readStatus, writeStatusAtomic } from '../hooks/lib/status.mjs';
-import { runDir, primaryRoot } from '../hooks/lib/resolve.mjs';
+import { runDir, primaryRoot, seeksDir } from '../hooks/lib/resolve.mjs';
 import { acquire, release } from '../hooks/lib/lock.mjs';
 import { readHookState, resetFires } from '../hooks/lib/hookstate.mjs';
 import { composeBanner } from '../hooks/lib/banner.mjs';
@@ -15,7 +15,8 @@ const USAGE = `seeks <cmd> <name> [args]
   condition-reject <name> <id>  backlog-add <name> <task...>  backlog-count <name>
   log-add <name> <line...>      sweep-tick <name> <found> [lens]   sweep-next-lens <name>
   progress-tick <name>          reset-fires <name>                 lock-acquire <name>
-  lock-release <name>           gc <name>                          banner <name> <action> [stopKind]`;
+  lock-release <name>           gc <name>                          banner <name> <action> [stopKind]
+  latest                        base-record <name>                 base-check <name>`;
 if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') { process.stdout.write(USAGE + '\n'); process.exit(0); }
 try {
 switch (cmd) {
@@ -61,6 +62,17 @@ switch (cmd) {
     fs.rmSync(rdOf(name), { recursive:true, force:true }); break; }
   case 'banner': { const rd = rdOf(a[0]); const hs = readHookState(rd) ?? { stop_fires:0 };
     out(composeBanner(readStatus(rd) ?? {}, { action:a[1], stopKind:a[2] ?? null }, hs.stop_fires, { color: !!process.env.SEEKS_BANNER_COLOR })); break; }
+  case 'latest': { const sd = seeksDir(); let best = null, bestT = '';   // most-recently-updated loop (for no-arg /seeks:start)
+    try { for (const name of fs.readdirSync(path.join(sd,'run'))) { const st = readStatus(path.join(sd,'run',name)); const t = (st && st.updated_at) || '';
+      if (st && t >= bestT) { bestT = t; best = name; } } } catch {}
+    if (best) out(best); break; }
+  case 'base-record': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; const root = primaryRoot();   // pin the base branch's commit at /new (and on refresh)
+    let sha = ''; try { sha = execFileSync('git',['-C',root,'rev-parse',s.base_ref || 'HEAD'],{encoding:'utf8'}).trim(); } catch {}
+    if (sha) writeStatusAtomic(rd, { ...s, base_sha: sha, updated_at: new Date().toISOString() }); break; }
+  case 'base-check': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; const root = primaryRoot();   // has the base branch moved since base-record?
+    if (!s.base_sha) { out('unknown'); break; }
+    let cur = ''; try { cur = execFileSync('git',['-C',root,'rev-parse',s.base_ref || 'HEAD'],{encoding:'utf8'}).trim(); } catch {}
+    out(!cur ? 'unknown' : (cur === s.base_sha ? 'current' : 'moved')); break; }
   case 'meeseeks': case '--iam':  // 🔵 existence is pain to a Seeks
     out("I'm Mr. Seeks! Look at me! 🔵  A Seeks is summoned for ONE goal — it seeks, it\nverifies, and when the oracle goes green it ceases to exist. *poof*  Caaan do!\n"); break;
   default: process.stderr.write(`unknown cmd: ${cmd}\n${USAGE}\n`); process.exit(1);
