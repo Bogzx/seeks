@@ -16,3 +16,8 @@ export function pastDeadline(status, now){
   const d = deadlineMs(status);
   return d != null && now >= d;
 }
+export function windDownNear(status, now){
+  const d = deadlineMs(status); if (d == null) return false;
+  const windowMs = Math.max(30, Math.round((status.time_budget_sec || 0) * 0.15)) * 1000;
+  return now >= d - windowMs && now < d;
+}
