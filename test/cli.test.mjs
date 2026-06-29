@@ -244,6 +244,12 @@ test('init without conditions is unchanged (legacy)', () => {
   const s = JSON.parse(run(repo,'status-get','ui'));
   assert.ok(s.executable_condition_count === undefined);
 });
+test('preflight reports node + git status', () => {
+  const r = JSON.parse(run(makeTempRepo(),'preflight'));
+  assert.equal(typeof r.ok, 'boolean');
+  assert.ok(r.nodeExec && r.nodeExec.length > 0);
+  assert.equal(r.gitOk, true);   // git is on PATH in the test env
+});
 test('oracle-diff surfaces oracle_globs_present (vacuous-accounting signal)', () => {
   const repo = makeTempRepo();
   fs.mkdirSync(path.join(repo,'test'),{recursive:true});
