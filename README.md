@@ -90,17 +90,19 @@ You pick a level at `/seeks:new`. It isn't a polite request — the guard-rail h
 
 For "make it green" goals, the obvious cheat is to loosen the test. seeks shuts that down without getting in your way: the verifier must **account for every test it touched** before it's allowed to certify, and that accounting is pinned by a content hash — change a test *after* you've accounted for it and the certification is void, forcing a fresh check. Edit and add tests freely while you build features; you just can't *silently* move the goalposts to manufacture a pass.
 
-## Models: which agents do the work
+## Usage tiers: how hard the agents work
 
-Set per role in `.seeks/config.json`. Defaults:
+The first time you run `/seeks:new`, seeks asks once which tier fits your plan — and remembers it in `~/.claude/seeks.json`. A tier sets the per-role models *and* the iteration budget; every new loop is scaffolded from it (override per-loop, or change it anytime — `/seeks:doctor` shows the current one).
 
-| Role | Model | Effort |
-|---|---|---|
-| intake · analyzer · maker | opus | high |
-| verifier | opus | max |
-| triage | sonnet | low |
+| Role | Light | Balanced *(default)* | All-out |
+|---|---|---|---|
+| maker · intake | sonnet | opus · sonnet | opus |
+| analyzer | sonnet | sonnet | opus |
+| verifier | sonnet | opus | opus · max effort |
+| triage / sweeps | haiku | sonnet | opus |
+| iteration cap | low | medium | high (+ deeper sweeps) |
 
-The verifier runs hardest because it owns the certify decision; triage stays cheap on sonnet. Override any role to fit your budget.
+**Light** stretches a tight plan (all-sonnet, low caps); **Balanced** puts opus where it counts — the maker and the verifier — and sonnet elsewhere; **All-out** goes opus across the board for overnight, quality-first runs. The verifier runs hardest because it owns the certify decision. A lighter tier costs you *thoroughness*, never *safety* — the oracle gate, denylist, and no-merge rules are deterministic at every tier. (The maker is your own session, so its model is a nudge; the dispatched subagents — analyzer, verifier, sweeps — use the tier's models exactly.)
 
 ## How it works
 
