@@ -21,6 +21,7 @@ const USAGE = `seeks <cmd> <name> [args]
   condition-reject <name> <id>  backlog-add <name> <task...>  backlog-count <name>
   log-add <name> <line...>      sweep-tick <name> <found> [lens]   sweep-next-lens <name>
   progress-tick <name>          reset-fires <name>                 lock-acquire <name>
+  budget-set <name> <sec>       start-clock <name>
   lock-release <name>           gc <name>                          banner <name> <action> [stopKind]
   latest                        base-record <name>                 base-check <name>
   oracle-diff <name>            oracle-ack <name>                   deliver <name>
@@ -69,6 +70,10 @@ switch (cmd) {
     if (!acquire(rd, Date.now(), ttl).ok) { process.stderr.write('loop already running'); process.exit(1); } break; }
   case 'lock-release': release(rdOf(a[0])); break;
   case 'reset-fires': resetFires(rdOf(a[0])); break;   // zero stop_fires → max_iters is a per-/seeks:start budget (F3)
+  case 'budget-set': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {};   // wall-clock budget (sec); enforced by gate + pre-tool
+    writeStatusAtomic(rd, { ...s, time_budget_sec: Number(a[1]) || null, updated_at: new Date().toISOString() }); out('ok'); break; }
+  case 'start-clock': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {};   // stamp start so the budget is per-/seeks:start
+    writeStatusAtomic(rd, { ...s, started_at: Date.now(), updated_at: new Date().toISOString() }); out('ok'); break; }
   case 'gc': { const name = a[0]; const root = primaryRoot();
     try { execFileSync('git',['-C',root,'worktree','remove','--force',`.claude/worktrees/${name}`]); } catch {}
     try { execFileSync('git',['-C',root,'branch','-D',`seeks/${name}`]); } catch {}

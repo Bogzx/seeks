@@ -196,3 +196,13 @@ test('oracle-diff + oracle-ack round-trip on a real worktree', () => {
   const s = JSON.parse(run(repo,'status-get','ui'));
   assert.equal(s.oracle_ack_hash, d.hash); assert.equal(s.oracle_changed_count, 1);
 });
+test('budget-set + start-clock stamp the budget and start time', () => {
+  const repo = makeTempRepo(); seed(repo,'ui',{ loop:'ui' });
+  run(repo,'budget-set','ui','28800');
+  let s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.time_budget_sec, 28800);
+  const before = Date.now();
+  run(repo,'start-clock','ui');
+  s = JSON.parse(run(repo,'status-get','ui'));
+  assert.ok(s.started_at >= before - 1000 && s.started_at <= Date.now() + 1000);
+});
