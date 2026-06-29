@@ -30,7 +30,7 @@ State for loop `<name>` lives in the PRIMARY checkout's `.seeks/run/<name>/`. Yo
 5. **LAST action — STOP. One pass per turn.** After `progress-tick`, end your turn: print a one-line recap and nothing more. **Do NOT begin the next pass yourself.** The Stop hook re-invokes you for the next pass, or releases you when the loop is done / needs-human / stuck / at `max_iters`. This is mandatory — ending your turn is what advances `stop_fires` so the hook-owned `max_iters` backstop and the stuck guard can actually fire, and what lets state survive compaction between passes. Always stop after exactly one pass (one backlog item, OR one verifier round). **Do NOT disarm a terminal loop yourself** — the gate already *allows* the stop and prints the `✅ done` / `⏸ needs-human` banner; a disarmed loop is invisible to the hook (so no terminal banner shows) **and** self-disarm would let a maker bypass the `min_dry_sweeps` gate. Teardown is the user's call via `/seeks:stop` or `/seeks:harvest`.
 
 ## Verifier subagent (maker ≠ checker)
-Fresh context; runs checks in the worktree; cites evidence; rejects on ambiguity; the ONLY writer of `verifier_certified`.
+Fresh context; runs checks in the worktree; cites evidence; rejects on ambiguity; the ONLY writer of `verifier_certified`. A loop with **no executable condition** (subjective / `human_required`) can never be certified `done` by the gate — converge the mechanics, write findings/summary, then set `needs_human`. Do NOT set `done`.
 
 ## Never
 Never hand-write status.json/hook-state.json. Never let the maker self-certify. Never edit denylist paths.
