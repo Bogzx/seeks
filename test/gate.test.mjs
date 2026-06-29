@@ -20,3 +20,10 @@ test('done is gated by min_dry_sweeps (legacy unaffected)', () => {
   const r = decide({ ...d, min_dry_sweeps:2, dry_sweeps:2 }, hs(1));
   assert.equal(r.action,'allow'); assert.equal(r.stopKind,'done');                     // enough dry → done
 });
+test('done is gated by oracle ack==live (when live is present)', () => {
+  const d = { ...base, done:true, verifier_certified:true };
+  assert.equal(decide(d, hs(1)).stopKind, 'done');                                    // no live hash → legacy/satisfied
+  assert.equal(decide({ ...d, oracle_live_hash:'abc', oracle_ack_hash:'abc' }, hs(1)).stopKind, 'done'); // ack matches → done
+  assert.equal(decide({ ...d, oracle_live_hash:'abc', oracle_ack_hash:'OLD' }, hs(1)).action, 'block');  // stale ack → block
+  assert.equal(decide({ ...d, oracle_live_hash:'abc' }, hs(1)).action, 'block');                          // missing ack → block
+});
