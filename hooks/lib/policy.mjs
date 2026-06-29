@@ -2,6 +2,7 @@
 // it is fixed code (no model). First matching DENY wins; default ALLOW. Only edit
 // tools + Bash are policed. See docs/superpowers/specs/2026-06-29-seeks-enforcement-plane-design.md §5.
 import { canon, isInside } from './paths.mjs'; import { anyGlob } from './glob.mjs';
+import { pastDeadline } from './budget.mjs';
 export const DEFAULT_DENYLIST = ['**/.env','**/secrets/**','.git/**'];
 const EDIT_TOOLS = new Set(['Edit','Write','MultiEdit','NotebookEdit']);
 const allow = { action:'allow', reason:null };
@@ -61,6 +62,9 @@ function bashGit(cmd){
 }
 export function decidePreTool(toolName, toolInput, ctx = {}){
   const level = String(ctx.level || 'L2').toUpperCase();
+  if ((toolName === 'Bash' || EDIT_TOOLS.has(toolName)) &&
+      pastDeadline({ started_at: ctx.startedAt, time_budget_sec: ctx.timeBudgetSec }, ctx.now ?? Date.now()))
+    return deny('[seeks] time budget reached — wrap up; the loop will end on your next stop.');
   if (toolName === 'Bash'){
     const op = bashGit(toolInput?.command);
     if (op === 'push' || op === 'merge') return deny('[seeks] delivery is automated via "seeks deliver" (L3 only); the agent never pushes/merges/rebases directly.');
