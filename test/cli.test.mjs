@@ -48,6 +48,20 @@ test('init prints ok and writes status', () => {
   const s = JSON.parse(run(repo,'status-get','ui'));
   assert.equal(s.loop,'ui');
 });
+test('init defaults level, oracle_globs, denylist when absent', () => {
+  const repo = makeTempRepo();
+  run(repo,'init','ui','{"loop":"ui","open_items":0}');
+  const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.level, 'L2');
+  assert.ok(Array.isArray(s.oracle_globs) && s.oracle_globs.includes('test/**'));
+  assert.ok(Array.isArray(s.denylist) && s.denylist.includes('**/.env'));
+});
+test('init keeps caller-provided level/globs', () => {
+  const repo = makeTempRepo();
+  run(repo,'init','ui','{"loop":"ui","level":"L1","oracle_globs":["spec/**"]}');
+  const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.level, 'L1'); assert.deepEqual(s.oracle_globs, ['spec/**']);
+});
 test('log-add appends lines to log.md (create-on-write)', () => {
   const repo = makeTempRepo(); const rd = seed(repo,'ui',{ loop:'ui' });
   run(repo,'log-add','ui','pass 1 — edited foo.ts');
