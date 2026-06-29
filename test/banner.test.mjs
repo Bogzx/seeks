@@ -20,6 +20,12 @@ test('time-budget halt renders a clock banner', () => {
   assert.match(out, /⏰ halt: time budget/);
   assert.match(out, /pass 7/);
 });
+test('time-budget banner shows a findings/state summary tail', () => {
+  const out = composeBanner({ loop:'x', sweep_found_total:5, open_items:3, depth:2 },
+    { action:'allow', stopKind:'time-budget' }, 9);
+  assert.match(out, /⏰ halt: time budget/);
+  assert.match(out, /5 found/); assert.match(out, /3 open/); assert.match(out, /depth 2/);
+});
 test('banner shows oracle segment when changes are present', () => {
   assert.match(composeBanner({ ...s, oracle_changed_count: 2 }, { action:'block', stopKind:null }, 5), /oracle: 2 changed/);
   assert.ok(!composeBanner(s, { action:'block', stopKind:null }, 5).includes('oracle:'));

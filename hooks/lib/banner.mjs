@@ -14,7 +14,10 @@ export function composeBanner(status, decision, stopFires, opts = {}){
     if (decision.stopKind==='needs_human') return `${head} · ${C.y}⏸ needs-human: ${s.last_verdict ?? 'human required'}${C.z}`;
     if (decision.stopKind==='stuck') return `${head} · ${C.r}⛔ halt: stuck (${s.no_progress_count ?? 0} no-progress)${C.z}`;
     if (decision.stopKind==='max_iters') return `${head} · ${C.r}⛔ halt: max-iters (${pass})${C.z}`;
-    if (decision.stopKind==='time-budget') return `${head} · ${C.r}⏰ halt: time budget${C.z}`;
+    if (decision.stopKind==='time-budget'){
+      const tail = ` · ${s.sweep_found_total ?? 0} found · ${s.open_items ?? 0} open${(s.depth ?? 0) ? ` · depth ${s.depth}` : ''}`;
+      return `${head} · ${C.r}⏰ halt: time budget${C.z}${tail}`;
+    }
     return `${head} · stopped`;
   }
   const change = s.last_change ?? '(no change)'; const verdict = s.last_verdict ? ` · verify: ${s.last_verdict}` : '';
