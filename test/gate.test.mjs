@@ -55,3 +55,12 @@ test('exhaustive done is gated by dry_depth_rounds, not dry_sweeps', () => {
   assert.equal(decide({ ...d, dry_depth_rounds:1 }, hs(1)).action, 'block', '1 depth round < default 2');
   assert.equal(decide({ ...d, dry_depth_rounds:2 }, hs(1)).stopKind, 'done', '2 depth rounds → satisfied');
 });
+test('wind-down: near the deadline the block reason says to wrap up', () => {
+  const s = { ...base, started_at: 0, time_budget_sec: 1000 };   // deadline 1e6, window 150s
+  const r = decide(s, hs(1), 900000);                            // inside wind-down, before deadline
+  assert.equal(r.action, 'block');
+  assert.match(r.reason, /summary\.md/);
+  assert.match(r.reason, /budget/i);
+  const normal = decide(s, hs(1), 100000);                       // far from deadline → normal message
+  assert.match(normal.reason, /Do EXACTLY ONE pass/);
+});

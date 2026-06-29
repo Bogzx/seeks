@@ -1,4 +1,4 @@
-import { pastDeadline } from './budget.mjs';
+import { pastDeadline, windDownNear } from './budget.mjs';
 function oracleSatisfied(s){
   if (s.oracle_live_hash == null) return true;   // not computed (legacy / fail-open) → don't block
   return s.oracle_ack_hash === s.oracle_live_hash;
@@ -28,5 +28,7 @@ export function decide(status, hookState, now = Date.now()){
     return { action:'block', stopKind:null,
       reason: `[seeks] Loop ${s.loop} is certified but not delivered. This is an L3 loop — run "seeks deliver ${s.loop}" (pushes seeks/${s.loop} and opens a PR; degrades to push/local if gh/remote are absent), then end your turn.` };
   return { action:'block', stopKind:null,
-    reason: `[seeks] Loop ${s.loop}: ${s.open_items ?? '?'} open. Do EXACTLY ONE pass, then STOP — end your turn, do NOT continue into the next pass (I will re-invoke you). Read .seeks/run/${s.loop}/state.md, do the next backlog item (or run the verifier if the backlog is empty), run "seeks progress-tick ${s.loop}", then end your turn.` };
+    reason: windDownNear(s, now)
+      ? `[seeks] Loop ${s.loop}: time budget nearly up — STOP starting new work. Write summary.md (what you found / what's left), commit it, then end your turn.`
+      : `[seeks] Loop ${s.loop}: ${s.open_items ?? '?'} open. Do EXACTLY ONE pass, then STOP — end your turn, do NOT continue into the next pass (I will re-invoke you). Read .seeks/run/${s.loop}/state.md, do the next backlog item (or run the verifier if the backlog is empty), run "seeks progress-tick ${s.loop}", then end your turn.` };
 }
