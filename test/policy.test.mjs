@@ -34,6 +34,21 @@ test('git push/merge/rebase denied at EVERY level (delivery is CLI-only)', () =>
     assert.equal(decidePreTool('Bash', { command: 'git rebase main' }, ctx(lvl)).action, 'deny');
   }
 });
+test('git policy is not bypassed by global options / git.exe (H1)', () => {
+  const c = ctx('L2');
+  for (const cmd of ['git -C /wt push origin main','git.exe push','git --no-pager push',
+                     'git -c k=v push origin x','git -C /wt rebase main','git -C /wt merge main']){
+    assert.equal(decidePreTool('Bash', { command: cmd }, c).action, 'deny', `should deny: ${cmd}`);
+  }
+  assert.equal(decidePreTool('Bash', { command: 'git -C /wt commit -m x' }, ctx('L1')).action, 'deny');   // L1 commit via -C
+  assert.equal(decidePreTool('Bash', { command: 'git commit -m x && git push' }, c).action, 'deny');        // push in 2nd segment
+});
+test('git policy does not false-positive on substrings (M1)', () => {
+  const c = ctx('L2');
+  assert.equal(decidePreTool('Bash', { command: 'git commit -m "docs: how to git push"' }, c).action, 'allow');
+  assert.equal(decidePreTool('Bash', { command: 'echo remember to git push later' }, c).action, 'allow');
+  assert.equal(decidePreTool('Bash', { command: 'npm run push-docs' }, c).action, 'allow');
+});
 test('git commit denied at L1 only', () => {
   assert.equal(decidePreTool('Bash', { command: 'git commit -m x' }, ctx('L1')).action, 'deny');
   assert.equal(decidePreTool('Bash', { command: 'git commit -m x' }, ctx('L2')).action, 'allow');
