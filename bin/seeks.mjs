@@ -31,6 +31,12 @@ try {
 switch (cmd) {
   case 'init': { const rd = rdOf(a[0]); fs.mkdirSync(rd,{recursive:true});
     const st = JSON.parse(a[1]);
+    if (Array.isArray(st.conditions)) {                          // structured done-conditions → fail-closed: must have a real check or be explicitly human-judged
+      const exec = st.conditions.filter(c => c && c.cmd && !c.human_required).length;
+      const human = st.conditions.some(c => c && c.human_required);
+      if (exec === 0 && !human) { process.stderr.write('[seeks] init refused: a loop needs >=1 executable done-condition (with a cmd) or an explicit human_required condition'); process.exit(1); }
+      st.executable_condition_count = exec;
+    }
     if (!st.level) st.level = 'L2';                               // persist level/globs/denylist so the PreToolUse hook reads them from status alone
     if (!st.oracle_globs) st.oracle_globs = DEFAULT_ORACLE_GLOBS;
     if (!st.denylist) st.denylist = DEFAULT_DENYLIST;

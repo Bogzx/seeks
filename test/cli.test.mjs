@@ -222,3 +222,25 @@ test('sweep-tick: non-exhaustive is unchanged (no depth fields)', () => {
   const s = JSON.parse(run(repo,'status-get','n'));
   assert.equal(s.dry_sweeps,2); assert.ok(s.depth === undefined); assert.ok(s.dry_depth_rounds === undefined);
 });
+test('init derives executable_condition_count from conditions', () => {
+  const repo = makeTempRepo();
+  run(repo,'init','ui', JSON.stringify({ loop:'ui', conditions:[{id:'t',cmd:'npm test',expect:0},{id:'h',human_required:true}] }));
+  const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.executable_condition_count, 1);
+});
+test('init refuses a loop with no runnable check and no human_required', () => {
+  const repo = makeTempRepo();
+  assert.throws(() => run(repo,'init','ui', JSON.stringify({ loop:'ui', conditions:[{id:'x',human_required:false}] })));
+});
+test('init accepts a human_required-only loop (subjective)', () => {
+  const repo = makeTempRepo();
+  run(repo,'init','ui', JSON.stringify({ loop:'ui', conditions:[{id:'judge',human_required:true}] }));
+  const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.executable_condition_count, 0);   // allowed: routes to needs-human, never done
+});
+test('init without conditions is unchanged (legacy)', () => {
+  const repo = makeTempRepo();
+  run(repo,'init','ui', JSON.stringify({ loop:'ui', open_items:0 }));
+  const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.ok(s.executable_condition_count === undefined);
+});
