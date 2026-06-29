@@ -27,3 +27,9 @@ test('done is gated by oracle ack==live (when live is present)', () => {
   assert.equal(decide({ ...d, oracle_live_hash:'abc', oracle_ack_hash:'OLD' }, hs(1)).action, 'block');  // stale ack → block
   assert.equal(decide({ ...d, oracle_live_hash:'abc' }, hs(1)).action, 'block');                          // missing ack → block
 });
+test('L3 done is gated by delivery', () => {
+  const d = { ...base, done:true, verifier_certified:true };
+  assert.equal(decide(d, hs(1)).stopKind, 'done');                                   // base has no level → L2 → unaffected
+  assert.equal(decide({ ...d, level:'L3' }, hs(1)).action, 'block');                 // L3 not delivered → block
+  assert.equal(decide({ ...d, level:'L3', delivered:true }, hs(1)).stopKind, 'done'); // delivered → done
+});
