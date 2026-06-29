@@ -143,6 +143,20 @@ test('base-check returns unknown when base_sha absent', () => {
   const repo = makeTempRepo(); seed(repo,'ui',{ loop:'ui', base_ref:'main' });
   assert.equal(run(repo,'base-check','ui'), 'unknown');
 });
+test('deliver requires L3', () => {
+  const repo = makeTempRepo(); seed(repo,'ui',{ loop:'ui', level:'L2', worktree_path:repo });
+  assert.throws(() => run(repo,'deliver','ui'));  // non-L3 → exit 1 → execFileSync throws
+});
+test('deliver L3 local-mode records delivered + mode', () => {
+  const repo = makeTempRepo();
+  fs.writeFileSync(path.join(repo,'a'),'1'); execFileSync('git',['add','-A'],{cwd:repo}); execFileSync('git',['commit','-q','-m','i'],{cwd:repo});
+  execFileSync('git',['branch','seeks/ui'],{cwd:repo});
+  seed(repo,'ui',{ loop:'ui', level:'L3', worktree_path:repo, base_ref:'HEAD' });
+  const out = JSON.parse(run(repo,'deliver','ui'));
+  assert.equal(out.delivered, true); assert.equal(out.mode, 'local');
+  const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.delivered, true); assert.equal(s.delivery_mode, 'local');
+});
 test('oracle-diff + oracle-ack round-trip on a real worktree', () => {
   const repo = makeTempRepo();
   fs.mkdirSync(path.join(repo,'test'),{recursive:true});

@@ -5,6 +5,12 @@ const s = { loop:'ui', open_items_prev:9, open_items:7, last_change:'edited Butt
 test('continuing', () => assert.match(composeBanner(s,{action:'block',stopKind:null},12),
   /▸ ui · pass 12 · items 9→7 · edited Button.tsx · verify: REJECT \(typecheck\) · continuing/));
 test('done', () => assert.match(composeBanner(s,{action:'allow',stopKind:'done'},12), /✅ done/));
+test('done banner shows the L3 delivery outcome', () => {
+  assert.match(composeBanner({...s, delivery_mode:'pr', pr_url:'https://h/pr/5'}, {action:'allow',stopKind:'done'}, 9), /✅ done · PR https:\/\/h\/pr\/5/);
+  assert.match(composeBanner({...s, delivery_mode:'push'}, {action:'allow',stopKind:'done'}, 9), /✅ done · pushed \(no PR\)/);
+  assert.match(composeBanner({...s, delivery_mode:'local'}, {action:'allow',stopKind:'done'}, 9), /branch kept local/);
+  assert.ok(!composeBanner(s, {action:'allow',stopKind:'done'}, 9).includes('PR ')); // non-L3 → plain done
+});
 test('max-iters distinct from stuck', () => {
   assert.match(composeBanner(s,{action:'allow',stopKind:'max_iters'},50), /⛔ halt: max-iters \(50\)/);
   assert.match(composeBanner({...s,no_progress_count:3},{action:'allow',stopKind:'stuck'},20), /⛔ halt: stuck \(3 no-progress\)/);

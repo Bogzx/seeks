@@ -7,6 +7,7 @@ import { composeBanner } from '../hooks/lib/banner.mjs';
 import { nextLens, DEFAULT_LENSES } from '../hooks/lib/lenses.mjs';
 import { oracleDiffHash, DEFAULT_ORACLE_GLOBS } from '../hooks/lib/oracle.mjs';
 import { DEFAULT_DENYLIST } from '../hooks/lib/policy.mjs';
+import { deliver } from '../hooks/lib/deliver.mjs';
 const [cmd, ...a] = process.argv.slice(2);
 const out = (x) => process.stdout.write(typeof x === 'string' ? x : JSON.stringify(x));
 const backlog = (rd) => path.join(rd,'backlog.md');
@@ -19,7 +20,7 @@ const USAGE = `seeks <cmd> <name> [args]
   progress-tick <name>          reset-fires <name>                 lock-acquire <name>
   lock-release <name>           gc <name>                          banner <name> <action> [stopKind]
   latest                        base-record <name>                 base-check <name>
-  oracle-diff <name>            oracle-ack <name>`;
+  oracle-diff <name>            oracle-ack <name>                   deliver <name>`;
 if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') { process.stdout.write(USAGE + '\n'); process.exit(0); }
 try {
 switch (cmd) {
@@ -88,6 +89,13 @@ switch (cmd) {
   case 'oracle-ack': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {};   // verifier records it accounted for exactly this changed-set; gate compares to live
     const r = oracleDiffHash(s.worktree_path, s.base_sha, s.oracle_globs ?? DEFAULT_ORACLE_GLOBS);
     writeStatusAtomic(rd, { ...s, oracle_ack_hash: r.hash, oracle_changed_count: r.files.length, updated_at: new Date().toISOString() }); out('ok'); break; }
+  case 'deliver': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; const root = primaryRoot();   // L3 autonomous delivery: push + open PR (never merges); degrades pr→push→local
+    if (String(s.level || 'L2').toUpperCase() !== 'L3'){ process.stderr.write('deliver is L3-only'); process.exit(1); }
+    let body = 'Automated by seeks. Review the diff; the merge is yours.';
+    try { const sm = fs.readFileSync(path.join(rd,'summary.md'),'utf8'); if (sm.trim()) body = sm; } catch {}
+    const r = deliver(a[0], { root, branch:`seeks/${a[0]}`, base_ref: s.base_ref, title:`seeks: ${a[0]}`, body });
+    writeStatusAtomic(rd, { ...s, delivered:true, delivery_mode:r.mode, pr_url:r.pr_url, delivery_note:r.note, updated_at: new Date().toISOString() });
+    out(JSON.stringify({ delivered:true, mode:r.mode, pr_url:r.pr_url, note:r.note })); break; }
   case 'meeseeks': case '--iam':  // 🔵 existence is pain to a Seeks
     out("I'm Mr. Seeks! Look at me! 🔵  A Seeks is summoned for ONE goal — it seeks, it\nverifies, and when the oracle goes green it ceases to exist. *poof*  Caaan do!\n"); break;
   default: process.stderr.write(`unknown cmd: ${cmd}\n${USAGE}\n`); process.exit(1);

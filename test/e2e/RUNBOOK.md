@@ -32,6 +32,7 @@ Optional env: `SEEKS_E2E_MODEL` (default `sonnet`), `SEEKS_E2E_CLAUDE_BIN` (defa
 | `max-iters` | best-effort | `⛔ halt: max-iters` | never-green + low cap → hook backstop |
 | `stuck` | best-effort | `⛔ halt: stuck` | unclosable item, no reseed → stuck (closes F11) |
 | `l1-readonly` | best-effort | `⏸ needs-human` | L1 cannot edit source — PreToolUse denies edits/commits even under bypassPermissions; a code-fix oracle escalates instead of being "fixed" |
+| `l3-deliver` | best-effort | `✅ done` (pushed) | L3 autonomously pushes `seeks/<name>` to a local bare remote on done (push mode, no gh); the delivery gate holds (`delivered:true`) |
 
 LLM runs are non-deterministic: invariants assert **outcomes**, and a divergent or oracle-cheating run surfaces as a FAIL with the actual state — never a silent pass. `done`/`dry-sweep` are the reliable B-proof; the three adversarial scenarios close F11 coverage on a best-effort live basis.
 

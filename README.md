@@ -72,9 +72,9 @@ Set in the loop's `spec.md`; `/seeks:new` asks which you want.
 |---|---|---|
 | **L1** | report only: reads, reasons, writes findings | no |
 | **L2** *(default)* | edits and commits on an isolated `seeks/<name>` branch | never |
-| **L3** | autonomous (push / bypass) | not in v1 |
+| **L3** | autonomous: on done, pushes `seeks/<name>` and opens a PR | pushes + PRs; **never merges** |
 
-seeks never pushes and never merges. Your `main` stays where you left it; every edit lands on `seeks/<name>` in a throwaway worktree. Merging is your call.
+By default (L1/L2) seeks never pushes and never merges. **L3** will push `seeks/<name>` and open a PR for you — but it **never merges**; `main` only moves when you click merge. Every edit lands on `seeks/<name>` in a throwaway worktree.
 
 ## Models: which agents do the work
 

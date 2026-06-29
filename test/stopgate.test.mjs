@@ -37,3 +37,18 @@ test('a certify with an unaccounted oracle change is re-blocked', () => {
   const out = JSON.parse(run(repo));
   assert.equal(out.decision, 'block', 'unaccounted oracle change must re-block certify');
 });
+test('certify with NO oracle change releases done even without an ack (H2 fix)', () => {
+  const repo = makeTempRepo();
+  fs.mkdirSync(path.join(repo,'test'),{recursive:true});
+  fs.writeFileSync(path.join(repo,'test','a.test.js'),'1\n');
+  execFileSync('git',['add','-A'],{cwd:repo}); execFileSync('git',['commit','-q','-m','i'],{cwd:repo});
+  const base = execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim();
+  const rd = path.join(repo,'.seeks','run','ui'); fs.mkdirSync(rd,{recursive:true});
+  // done + certified, the oracle is UNCHANGED, and the verifier never ran oracle-ack
+  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify({ loop:'ui', armed:true, done:true, verifier_certified:true,
+    worktree_path:repo, base_sha:base, oracle_globs:['test/**'],
+    open_items:0, max_iters:50, stuck_threshold:3, no_progress_count:0, min_dry_sweeps:0 }));
+  const out = JSON.parse(run(repo));
+  assert.ok(!out.decision, 'no oracle change → must release done without requiring an ack');
+  assert.match(out.systemMessage, /✅ done/);
+});
