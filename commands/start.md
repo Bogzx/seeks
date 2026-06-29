@@ -11,5 +11,6 @@ Run shell via the Bash tool; never bare-`cd` (use `git -C` / subshells / absolut
    On **no**, continue without refreshing.
 3. `node "${CLAUDE_PLUGIN_ROOT}/bin/seeks.mjs" lock-acquire <name>` — if it exits non-zero, the loop is running elsewhere (fresh heartbeat). STOP and tell the user.
 4. **Reset sticky guards + the iteration counter** so a paused/halted loop resumes with a fresh budget: `node … status-set <name> '{"armed":true,"needs_human":false,"no_progress_count":0}'` then `node … reset-fires <name>`. If it previously halted on max-iters, ask the user whether to raise `max_iters` first.
+   - **Maker model nudge:** read `node … role maker` and tell the user one line — *"this loop's tier runs the maker best on `<model>`; you drive the maker yourself, so `/model <model>` to match (or carry on)."* The maker is this session, so seeks can't switch it for you.
 5. Call the `EnterWorktree` tool with `path: ".claude/worktrees/<name>"`.
 6. Begin **exactly the first pass** per the `/seeks:loop` skill (read it now), then **STOP — end your turn after that single pass.** Do NOT continue into the next pass. End the pass with `progress-tick`, then stop. The Stop hook re-invokes you for each subsequent pass and sustains the loop until done / needs-human / stuck / `max_iters`.
