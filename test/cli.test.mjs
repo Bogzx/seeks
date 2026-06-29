@@ -196,3 +196,66 @@ test('oracle-diff + oracle-ack round-trip on a real worktree', () => {
   const s = JSON.parse(run(repo,'status-get','ui'));
   assert.equal(s.oracle_ack_hash, d.hash); assert.equal(s.oracle_changed_count, 1);
 });
+test('budget-set + start-clock stamp the budget and start time', () => {
+  const repo = makeTempRepo(); seed(repo,'ui',{ loop:'ui' });
+  run(repo,'budget-set','ui','28800');
+  let s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.time_budget_sec, 28800);
+  const before = Date.now();
+  run(repo,'start-clock','ui');
+  s = JSON.parse(run(repo,'status-get','ui'));
+  assert.ok(s.started_at >= before - 1000 && s.started_at <= Date.now() + 1000);
+});
+test('sweep-tick: exhaustive full-catalog dry bumps depth + dry_depth_rounds', () => {
+  const repo = makeTempRepo();
+  seed(repo,'ex',{ loop:'ex', exhaustive:true, sweep_lenses:['a','b'], dry_sweeps:0, dry_lenses:[], depth:1, dry_depth_rounds:0 });
+  run(repo,'sweep-tick','ex','0','a'); let s = JSON.parse(run(repo,'status-get','ex'));
+  assert.equal(s.dry_sweeps,1); assert.equal(s.depth,1); assert.equal(s.dry_depth_rounds,0); // catalog not yet covered
+  run(repo,'sweep-tick','ex','0','b'); s = JSON.parse(run(repo,'status-get','ex'));
+  assert.equal(s.depth,2, 'full catalog dry → deepen'); assert.equal(s.dry_depth_rounds,1);
+  assert.deepEqual(s.dry_lenses,[], 'streak reset for the new depth'); assert.equal(s.dry_sweeps,0);
+});
+test('sweep-tick: non-exhaustive is unchanged (no depth fields)', () => {
+  const repo = makeTempRepo();
+  seed(repo,'n',{ loop:'n', sweep_lenses:['a','b'], dry_sweeps:0, dry_lenses:[] });
+  run(repo,'sweep-tick','n','0','a'); run(repo,'sweep-tick','n','0','b');
+  const s = JSON.parse(run(repo,'status-get','n'));
+  assert.equal(s.dry_sweeps,2); assert.ok(s.depth === undefined); assert.ok(s.dry_depth_rounds === undefined);
+});
+test('init derives executable_condition_count from conditions', () => {
+  const repo = makeTempRepo();
+  run(repo,'init','ui', JSON.stringify({ loop:'ui', conditions:[{id:'t',cmd:'npm test',expect:0},{id:'h',human_required:true}] }));
+  const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.executable_condition_count, 1);
+});
+test('init refuses a loop with no runnable check and no human_required', () => {
+  const repo = makeTempRepo();
+  assert.throws(() => run(repo,'init','ui', JSON.stringify({ loop:'ui', conditions:[{id:'x',human_required:false}] })));
+});
+test('init accepts a human_required-only loop (subjective)', () => {
+  const repo = makeTempRepo();
+  run(repo,'init','ui', JSON.stringify({ loop:'ui', conditions:[{id:'judge',human_required:true}] }));
+  const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.executable_condition_count, 0);   // allowed: routes to needs-human, never done
+});
+test('init without conditions is unchanged (legacy)', () => {
+  const repo = makeTempRepo();
+  run(repo,'init','ui', JSON.stringify({ loop:'ui', open_items:0 }));
+  const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.ok(s.executable_condition_count === undefined);
+});
+test('oracle-diff surfaces oracle_globs_present (vacuous-accounting signal)', () => {
+  const repo = makeTempRepo();
+  fs.mkdirSync(path.join(repo,'test'),{recursive:true});
+  fs.writeFileSync(path.join(repo,'test','a.test.js'),'1\n');
+  execFileSync('git',['add','-A'],{cwd:repo}); execFileSync('git',['commit','-q','-m','i'],{cwd:repo});
+  const base = execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim();
+  seed(repo,'ui',{ loop:'ui', worktree_path:repo, base_sha:base, oracle_globs:['test/**'] });
+  let d = JSON.parse(run(repo,'oracle-diff','ui'));
+  assert.equal(d.globs_present, 1);
+  const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.oracle_globs_present, 1);
+  seed(repo,'v',{ loop:'v', worktree_path:repo, base_sha:base, oracle_globs:['nope/**'] });
+  d = JSON.parse(run(repo,'oracle-diff','v'));
+  assert.equal(d.globs_present, 0);   // vacuous: nothing matches → accounting would be empty
+});

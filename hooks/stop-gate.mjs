@@ -19,8 +19,8 @@ try {                                                       // fail-open: a hook
           if (od.files.length > 0) status = { ...status, oracle_live_hash: od.hash };  // ack only required when oracle files actually changed; no change → legacy fail-open → done
         } catch {}
       }
-      const d = decide(status, hs);
-      const banner = composeBanner(status, d, hs.stop_fires, { color: !!process.env.SEEKS_BANNER_COLOR });
+      const d = decide(status, hs, Date.now());
+      const banner = composeBanner(status, d, hs.stop_fires, { color: !!process.env.SEEKS_BANNER_COLOR, now: Date.now() });
       process.stdout.write(d.action === 'block'
         ? JSON.stringify({ decision:'block', reason:d.reason, systemMessage:banner })
         : JSON.stringify({ systemMessage: banner }));

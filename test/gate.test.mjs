@@ -39,3 +39,38 @@ test('L3 undelivered still halts at max_iters (no infinite block)', () => {
   const d = { ...base, done:true, verifier_certified:true, level:'L3', max_iters:5 };
   assert.equal(decide(d, hs(5)).stopKind, 'max_iters');
 });
+test('time-budget terminal: past deadline allows + halts', () => {
+  const d = { ...base, started_at: 1000, time_budget_sec: 5 };
+  assert.equal(decide(d, hs(1), 5999).action, 'block');                 // before deadline → still working
+  const r = decide(d, hs(1), 6000);
+  assert.equal(r.action, 'allow'); assert.equal(r.stopKind, 'time-budget');
+});
+test('done still wins over an elapsed budget', () => {
+  const d = { ...base, done:true, verifier_certified:true, started_at:1000, time_budget_sec:5 };
+  assert.equal(decide(d, hs(1), 6000).stopKind, 'done');
+});
+test('exhaustive done is gated by dry_depth_rounds, not dry_sweeps', () => {
+  const d = { ...base, done:true, verifier_certified:true, exhaustive:true };
+  assert.equal(decide({ ...d, dry_sweeps:99 }, hs(1)).action, 'block', 'many dry sweeps is NOT enough when exhaustive');
+  assert.equal(decide({ ...d, dry_depth_rounds:1 }, hs(1)).action, 'block', '1 depth round < default 2');
+  assert.equal(decide({ ...d, dry_depth_rounds:2 }, hs(1)).stopKind, 'done', '2 depth rounds → satisfied');
+});
+test('done requires a real executable check when the count is known', () => {
+  const d = { ...base, done:true, verifier_certified:true };
+  assert.equal(decide({ ...d, executable_condition_count:0 }, hs(1)).action, 'block', 'no runnable check → cannot self-certify done');
+  assert.equal(decide({ ...d, executable_condition_count:1 }, hs(1)).stopKind, 'done');
+  assert.equal(decide(d, hs(1)).stopKind, 'done', 'legacy (count unset) → fail open, unchanged');
+});
+test('a no-check loop escalates rather than faking done', () => {
+  const d = { ...base, done:true, verifier_certified:true, executable_condition_count:0, needs_human:true };
+  assert.equal(decide(d, hs(1)).stopKind, 'needs_human');  // can't done → needs-human is the honest exit
+});
+test('wind-down: near the deadline the block reason says to wrap up', () => {
+  const s = { ...base, started_at: 0, time_budget_sec: 1000 };   // deadline 1e6, window 150s
+  const r = decide(s, hs(1), 900000);                            // inside wind-down, before deadline
+  assert.equal(r.action, 'block');
+  assert.match(r.reason, /summary\.md/);
+  assert.match(r.reason, /budget/i);
+  const normal = decide(s, hs(1), 100000);                       // far from deadline → normal message
+  assert.match(normal.reason, /Do EXACTLY ONE pass/);
+});
