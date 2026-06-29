@@ -9,7 +9,7 @@ export function parseDuration(s){
 }
 export function deadlineMs(status){
   const s = status || {};
-  if (!s.started_at || !s.time_budget_sec) return null;
+  if (s.started_at == null || !s.time_budget_sec) return null;   // started_at=0 is a valid timestamp
   return s.started_at + s.time_budget_sec * 1000;
 }
 export function pastDeadline(status, now){
