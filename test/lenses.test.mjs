@@ -14,3 +14,15 @@ test('nextLens: all used → least-recently-used', () => {
 test('nextLens: custom set respected', () => {
   assert.equal(nextLens(['a'], ['a','b','c']), 'b');
 });
+test('catalog is large and keeps the original six first', () => {
+  assert.ok(DEFAULT_LENSES.length >= 14, `catalog too small: ${DEFAULT_LENSES.length}`);
+  assert.deepEqual(DEFAULT_LENSES.slice(0,6),
+    ['concurrency','error-handling','boundary','resource-lifecycle','serialization','input-trust']);
+  assert.ok(DEFAULT_LENSES.includes('security-injection'));
+  assert.ok(DEFAULT_LENSES.includes('performance'));
+});
+test('nextLens is breadth-first: every lens before any repeat', () => {
+  const used = [];
+  for (let i=0;i<DEFAULT_LENSES.length;i++){ const l = nextLens(used, DEFAULT_LENSES); assert.ok(!used.includes(l)); used.push(l); }
+  assert.equal(new Set(used).size, DEFAULT_LENSES.length); // covered all before repeating
+});
