@@ -1,6 +1,8 @@
 {
   "hooks": {
     "Stop": [ { "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/stop-gate.mjs\"" } ] } ],
+    "PreToolUse": [ { "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+      "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/pre-tool.mjs\"" } ] } ],
     "SessionStart": [ { "matcher": "compact|resume|startup",
       "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-restore.mjs\"" } ] } ]
   }

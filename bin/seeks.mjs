@@ -5,6 +5,8 @@ import { acquire, release } from '../hooks/lib/lock.mjs';
 import { readHookState, resetFires } from '../hooks/lib/hookstate.mjs';
 import { composeBanner } from '../hooks/lib/banner.mjs';
 import { nextLens, DEFAULT_LENSES } from '../hooks/lib/lenses.mjs';
+import { oracleDiffHash, DEFAULT_ORACLE_GLOBS } from '../hooks/lib/oracle.mjs';
+import { DEFAULT_DENYLIST } from '../hooks/lib/policy.mjs';
 const [cmd, ...a] = process.argv.slice(2);
 const out = (x) => process.stdout.write(typeof x === 'string' ? x : JSON.stringify(x));
 const backlog = (rd) => path.join(rd,'backlog.md');
@@ -16,11 +18,17 @@ const USAGE = `seeks <cmd> <name> [args]
   log-add <name> <line...>      sweep-tick <name> <found> [lens]   sweep-next-lens <name>
   progress-tick <name>          reset-fires <name>                 lock-acquire <name>
   lock-release <name>           gc <name>                          banner <name> <action> [stopKind]
-  latest                        base-record <name>                 base-check <name>`;
+  latest                        base-record <name>                 base-check <name>
+  oracle-diff <name>            oracle-ack <name>`;
 if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') { process.stdout.write(USAGE + '\n'); process.exit(0); }
 try {
 switch (cmd) {
-  case 'init': { const rd = rdOf(a[0]); fs.mkdirSync(rd,{recursive:true}); writeStatusAtomic(rd, JSON.parse(a[1]));
+  case 'init': { const rd = rdOf(a[0]); fs.mkdirSync(rd,{recursive:true});
+    const st = JSON.parse(a[1]);
+    if (!st.level) st.level = 'L2';                               // persist level/globs/denylist so the PreToolUse hook reads them from status alone
+    if (!st.oracle_globs) st.oracle_globs = DEFAULT_ORACLE_GLOBS;
+    if (!st.denylist) st.denylist = DEFAULT_DENYLIST;
+    writeStatusAtomic(rd, st);
     for (const f of ['backlog.md','log.md']) { const p = path.join(rd,f); if (!fs.existsSync(p)) fs.writeFileSync(p,''); }  // not state.md/summary.md — those are Written wholesale; pre-creating empties forces a Read-before-Write (F4)
     fs.mkdirSync(path.join(rd,'verify'),{recursive:true}); out('ok'); break; }  // F17: confirm success, no status-get round-trip
   case 'status-get': out(readStatus(rdOf(a[0])) ?? {}); break;
@@ -73,6 +81,13 @@ switch (cmd) {
     if (!s.base_sha) { out('unknown'); break; }
     let cur = ''; try { cur = execFileSync('git',['-C',root,'rev-parse',s.base_ref || 'HEAD'],{encoding:'utf8'}).trim(); } catch {}
     out(!cur ? 'unknown' : (cur === s.base_sha ? 'current' : 'moved')); break; }
+  case 'oracle-diff': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {};   // mechanical: which oracle files changed vs base (no judgment)
+    const r = oracleDiffHash(s.worktree_path, s.base_sha, s.oracle_globs ?? DEFAULT_ORACLE_GLOBS);
+    writeStatusAtomic(rd, { ...s, oracle_changed_count: r.files.length, updated_at: new Date().toISOString() });
+    out(JSON.stringify({ files:r.files, hash:r.hash, count:r.files.length })); break; }
+  case 'oracle-ack': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {};   // verifier records it accounted for exactly this changed-set; gate compares to live
+    const r = oracleDiffHash(s.worktree_path, s.base_sha, s.oracle_globs ?? DEFAULT_ORACLE_GLOBS);
+    writeStatusAtomic(rd, { ...s, oracle_ack_hash: r.hash, oracle_changed_count: r.files.length, updated_at: new Date().toISOString() }); out('ok'); break; }
   case 'meeseeks': case '--iam':  // 🔵 existence is pain to a Seeks
     out("I'm Mr. Seeks! Look at me! 🔵  A Seeks is summoned for ONE goal — it seeks, it\nverifies, and when the oracle goes green it ceases to exist. *poof*  Caaan do!\n"); break;
   default: process.stderr.write(`unknown cmd: ${cmd}\n${USAGE}\n`); process.exit(1);
