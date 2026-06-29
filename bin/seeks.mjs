@@ -8,11 +8,14 @@ import { nextLens, DEFAULT_LENSES } from '../hooks/lib/lenses.mjs';
 import { oracleDiffHash, DEFAULT_ORACLE_GLOBS } from '../hooks/lib/oracle.mjs';
 import { DEFAULT_DENYLIST } from '../hooks/lib/policy.mjs';
 import { deliver } from '../hooks/lib/deliver.mjs';
+import os from 'node:os';
+import { TIERS, resolveTier } from '../hooks/lib/tiers.mjs';
 const [cmd, ...a] = process.argv.slice(2);
 const out = (x) => process.stdout.write(typeof x === 'string' ? x : JSON.stringify(x));
 const backlog = (rd) => path.join(rd,'backlog.md');
 const countOpen = (rd) => { try { return (fs.readFileSync(backlog(rd),'utf8').match(/^- \[ \] /gm) || []).length; } catch { return 0; } };
 const rdOf = (name) => runDir(name);
+const userCfg = () => path.join(process.env.SEEKS_HOME || os.homedir(), '.claude', 'seeks.json');
 const USAGE = `seeks <cmd> <name> [args]
   init <name> <json>            status-get <name>             status-set <name> <patch-json>
   condition-reject <name> <id>  backlog-add <name> <task...>  backlog-count <name>
@@ -20,7 +23,8 @@ const USAGE = `seeks <cmd> <name> [args]
   progress-tick <name>          reset-fires <name>                 lock-acquire <name>
   lock-release <name>           gc <name>                          banner <name> <action> [stopKind]
   latest                        base-record <name>                 base-check <name>
-  oracle-diff <name>            oracle-ack <name>                   deliver <name>`;
+  oracle-diff <name>            oracle-ack <name>                   deliver <name>
+  tier-get                      tier-set <light|balanced|all-out>   role <name>`;
 if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') { process.stdout.write(USAGE + '\n'); process.exit(0); }
 try {
 switch (cmd) {
@@ -75,6 +79,18 @@ switch (cmd) {
     try { for (const name of fs.readdirSync(path.join(sd,'run'))) { const st = readStatus(path.join(sd,'run',name)); const t = (st && st.updated_at) || '';
       if (st && t >= bestT) { bestT = t; best = name; } } } catch {}
     if (best) out(best); break; }
+  case 'tier-get': { let tier = null;   // global per-user usage tier (~/.claude/seeks.json); resolves to its preset
+    try { tier = JSON.parse(fs.readFileSync(userCfg(),'utf8')).tier; } catch {}
+    if (!tier || !TIERS[tier]) { out('none'); break; }
+    const p = resolveTier(tier);
+    out(JSON.stringify({ tier, roles:p.roles, max_iters:p.max_iters, max_iters_openended:p.max_iters_openended, min_dry_sweeps:p.min_dry_sweeps })); break; }
+  case 'tier-set': { const name = a[0];
+    if (!TIERS[name]) { process.stderr.write(`unknown tier: ${name} (use: ${Object.keys(TIERS).join(', ')})`); process.exit(1); }
+    const f = userCfg(); fs.mkdirSync(path.dirname(f), { recursive:true });
+    const tmp = `${f}.tmp.${process.pid}`; fs.writeFileSync(tmp, JSON.stringify({ tier:name }, null, 2)); fs.renameSync(tmp, f); out('ok'); break; }
+  case 'role': { const sd = seeksDir(); let roles = {};   // {model,effort} for a role from .seeks/config.json — for dispatch
+    try { roles = JSON.parse(fs.readFileSync(path.join(sd,'config.json'),'utf8')).roles || {}; } catch {}
+    out(JSON.stringify(roles[a[0]] || {})); break; }
   case 'base-record': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; const root = primaryRoot();   // pin the base branch's commit at /new (and on refresh)
     let sha = ''; try { sha = execFileSync('git',['-C',root,'rev-parse',s.base_ref || 'HEAD'],{encoding:'utf8'}).trim(); } catch {}
     if (sha) writeStatusAtomic(rd, { ...s, base_sha: sha, updated_at: new Date().toISOString() }); break; }
