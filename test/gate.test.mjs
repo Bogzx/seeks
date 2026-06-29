@@ -30,6 +30,12 @@ test('done is gated by oracle ack==live (when live is present)', () => {
 test('L3 done is gated by delivery', () => {
   const d = { ...base, done:true, verifier_certified:true };
   assert.equal(decide(d, hs(1)).stopKind, 'done');                                   // base has no level → L2 → unaffected
-  assert.equal(decide({ ...d, level:'L3' }, hs(1)).action, 'block');                 // L3 not delivered → block
+  const blocked = decide({ ...d, level:'L3' }, hs(1));
+  assert.equal(blocked.action, 'block');                                             // L3 not delivered → block
+  assert.match(blocked.reason, /seeks deliver/);                                     // …with a delivery-specific nudge (M2)
   assert.equal(decide({ ...d, level:'L3', delivered:true }, hs(1)).stopKind, 'done'); // delivered → done
+});
+test('L3 undelivered still halts at max_iters (no infinite block)', () => {
+  const d = { ...base, done:true, verifier_certified:true, level:'L3', max_iters:5 };
+  assert.equal(decide(d, hs(5)).stopKind, 'max_iters');
 });
