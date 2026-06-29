@@ -10,6 +10,7 @@ import { DEFAULT_DENYLIST } from '../hooks/lib/policy.mjs';
 import { deliver } from '../hooks/lib/deliver.mjs';
 import os from 'node:os';
 import { TIERS, resolveTier } from '../hooks/lib/tiers.mjs';
+import { preflightAssess } from '../hooks/lib/detect.mjs';
 const [cmd, ...a] = process.argv.slice(2);
 const out = (x) => process.stdout.write(typeof x === 'string' ? x : JSON.stringify(x));
 const backlog = (rd) => path.join(rd,'backlog.md');
@@ -25,7 +26,8 @@ const USAGE = `seeks <cmd> <name> [args]
   lock-release <name>           gc <name>                          banner <name> <action> [stopKind]
   latest                        base-record <name>                 base-check <name>
   oracle-diff <name>            oracle-ack <name>                   deliver <name>
-  tier-get                      tier-set <light|balanced|all-out>   role <name>`;
+  tier-get                      tier-set <light|balanced|all-out>   role <name>
+  preflight`;
 if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') { process.stdout.write(USAGE + '\n'); process.exit(0); }
 try {
 switch (cmd) {
@@ -134,6 +136,9 @@ switch (cmd) {
     const r = deliver(a[0], { root, branch:`seeks/${a[0]}`, base_ref: s.base_ref, title:`seeks: ${a[0]}`, body });
     writeStatusAtomic(rd, { ...s, delivered:true, delivery_mode:r.mode, pr_url:r.pr_url, delivery_note:r.note, updated_at: new Date().toISOString() });
     out(JSON.stringify({ delivered:true, mode:r.mode, pr_url:r.pr_url, note:r.note })); break; }
+  case 'preflight': {       // runtime sanity for the hooks (the "node not found" foot-gun)
+    let gitOk = false; try { execFileSync('git',['--version'],{stdio:'ignore'}); gitOk = true; } catch {}
+    out(JSON.stringify(preflightAssess({ nodeExec: process.execPath, gitOk }))); break; }
   case 'meeseeks': case '--iam':  // 🔵 existence is pain to a Seeks
     out("I'm Mr. Seeks! Look at me! 🔵  A Seeks is summoned for ONE goal — it seeks, it\nverifies, and when the oracle goes green it ceases to exist. *poof*  Caaan do!\n"); break;
   default: process.stderr.write(`unknown cmd: ${cmd}\n${USAGE}\n`); process.exit(1);
