@@ -15,7 +15,9 @@ if (!match) process.exit(0);
 const hs = bumpFire(match.runDir, input.session_id ?? null, Date.now());  // own counter + heartbeat
 let status = match.status;
 if (status.done === true){                              // only when a certify is pending (rare): is the oracle ack still fresh?
-  try { status = { ...status, oracle_live_hash: oracleDiffHash(status.worktree_path, status.base_sha, status.oracle_globs).hash }; } catch {}
+  try { const od = oracleDiffHash(status.worktree_path, status.base_sha, status.oracle_globs);
+    if (od.files.length > 0) status = { ...status, oracle_live_hash: od.hash };  // ack only required when oracle files actually changed; no change → legacy fail-open → done
+  } catch {}
 }
 const d = decide(status, hs);
 const banner = composeBanner(status, d, hs.stop_fires, { color: !!process.env.SEEKS_BANNER_COLOR });
