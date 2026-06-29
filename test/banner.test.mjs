@@ -9,6 +9,10 @@ test('max-iters distinct from stuck', () => {
   assert.match(composeBanner(s,{action:'allow',stopKind:'max_iters'},50), /⛔ halt: max-iters \(50\)/);
   assert.match(composeBanner({...s,no_progress_count:3},{action:'allow',stopKind:'stuck'},20), /⛔ halt: stuck \(3 no-progress\)/);
 });
+test('banner shows oracle segment when changes are present', () => {
+  assert.match(composeBanner({ ...s, oracle_changed_count: 2 }, { action:'block', stopKind:null }, 5), /oracle: 2 changed/);
+  assert.ok(!composeBanner(s, { action:'block', stopKind:null }, 5).includes('oracle:'));
+});
 test('banner shows sweep segment only when min_dry_sweeps set', () => {
   assert.match(composeBanner({...s, min_dry_sweeps:2, dry_sweeps:1},{action:'block',stopKind:null},14), /sweep 1\/2 dry/);
   assert.ok(!composeBanner(s,{action:'block',stopKind:null},14).includes('sweep'));

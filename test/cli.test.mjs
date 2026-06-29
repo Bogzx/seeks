@@ -48,6 +48,20 @@ test('init prints ok and writes status', () => {
   const s = JSON.parse(run(repo,'status-get','ui'));
   assert.equal(s.loop,'ui');
 });
+test('init defaults level, oracle_globs, denylist when absent', () => {
+  const repo = makeTempRepo();
+  run(repo,'init','ui','{"loop":"ui","open_items":0}');
+  const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.level, 'L2');
+  assert.ok(Array.isArray(s.oracle_globs) && s.oracle_globs.includes('test/**'));
+  assert.ok(Array.isArray(s.denylist) && s.denylist.includes('**/.env'));
+});
+test('init keeps caller-provided level/globs', () => {
+  const repo = makeTempRepo();
+  run(repo,'init','ui','{"loop":"ui","level":"L1","oracle_globs":["spec/**"]}');
+  const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.level, 'L1'); assert.deepEqual(s.oracle_globs, ['spec/**']);
+});
 test('log-add appends lines to log.md (create-on-write)', () => {
   const repo = makeTempRepo(); const rd = seed(repo,'ui',{ loop:'ui' });
   run(repo,'log-add','ui','pass 1 — edited foo.ts');
@@ -128,4 +142,21 @@ test('base-record + base-check track base-branch movement', () => {
 test('base-check returns unknown when base_sha absent', () => {
   const repo = makeTempRepo(); seed(repo,'ui',{ loop:'ui', base_ref:'main' });
   assert.equal(run(repo,'base-check','ui'), 'unknown');
+});
+test('oracle-diff + oracle-ack round-trip on a real worktree', () => {
+  const repo = makeTempRepo();
+  fs.mkdirSync(path.join(repo,'test'),{recursive:true});
+  fs.writeFileSync(path.join(repo,'test','a.test.js'),'1\n');
+  execFileSync('git',['add','-A'],{cwd:repo}); execFileSync('git',['commit','-q','-m','i'],{cwd:repo});
+  const base = execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim();
+  seed(repo,'ui',{ loop:'ui', worktree_path:repo, base_sha:base, oracle_globs:['test/**'] });
+  // no change → empty
+  let d = JSON.parse(run(repo,'oracle-diff','ui')); assert.equal(d.count, 0);
+  // change the test → count 1
+  fs.writeFileSync(path.join(repo,'test','a.test.js'),'2\n');
+  d = JSON.parse(run(repo,'oracle-diff','ui')); assert.equal(d.count, 1);
+  // ack records the current hash
+  run(repo,'oracle-ack','ui');
+  const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.oracle_ack_hash, d.hash); assert.equal(s.oracle_changed_count, 1);
 });
