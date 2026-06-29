@@ -39,3 +39,13 @@ test('L3 undelivered still halts at max_iters (no infinite block)', () => {
   const d = { ...base, done:true, verifier_certified:true, level:'L3', max_iters:5 };
   assert.equal(decide(d, hs(5)).stopKind, 'max_iters');
 });
+test('time-budget terminal: past deadline allows + halts', () => {
+  const d = { ...base, started_at: 1000, time_budget_sec: 5 };
+  assert.equal(decide(d, hs(1), 5999).action, 'block');                 // before deadline → still working
+  const r = decide(d, hs(1), 6000);
+  assert.equal(r.action, 'allow'); assert.equal(r.stopKind, 'time-budget');
+});
+test('done still wins over an elapsed budget', () => {
+  const d = { ...base, done:true, verifier_certified:true, started_at:1000, time_budget_sec:5 };
+  assert.equal(decide(d, hs(1), 6000).stopKind, 'done');
+});
