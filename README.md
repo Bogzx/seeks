@@ -90,6 +90,8 @@ You pick a level at `/seeks:new`. It isn't a polite request — the guard-rail h
 
 For "make it green" goals, the obvious cheat is to loosen the test. seeks shuts that down without getting in your way: the verifier must **account for every test it touched** before it's allowed to certify, and that accounting is pinned by a content hash — change a test *after* you've accounted for it and the certification is void, forcing a fresh check. Edit and add tests freely while you build features; you just can't *silently* move the goalposts to manufacture a pass.
 
+The honest boundary: the hash catches a test edited or relaxed **after** it was accounted for (post-ack drift) on files matching the oracle globs. A test that was *already* weak is caught by the verifier's judgment at ack-time, not the hash. And a command-only oracle (typecheck / build) — or a goal whose tests don't match the globs — has **no file-level accounting**; seeks surfaces that case (`oracle_globs_present: 0`) so it's a visible limit, not a silent gap.
+
 ## Usage tiers: how hard the agents work
 
 The first time you run `/seeks:new`, seeks asks once which tier fits your plan — and remembers it in `~/.claude/seeks.json`. A tier sets the per-role models *and* the iteration budget; every new loop is scaffolded from it (override per-loop, or change it anytime — `/seeks:doctor` shows the current one).
