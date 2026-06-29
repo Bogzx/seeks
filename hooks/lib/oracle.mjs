@@ -14,3 +14,13 @@ export function oracleDiffHash(worktree, baseSha, globs = DEFAULT_ORACLE_GLOBS){
   const hash = crypto.createHash('sha1').update(parts.join('\n')).digest('hex').slice(0,16);
   return { files, hash };
 }
+// How many files in the worktree match the oracle globs (tracked + untracked). Zero means the
+// content-hash accounting is vacuous — a relaxed test wouldn't be caught (e.g. command-only oracle,
+// or tests that don't match the globs). Surfaced so it isn't a silent gap.
+export function oracleGlobsPresent(worktree, globs = DEFAULT_ORACLE_GLOBS){
+  const git = (...args) => { try { return execFileSync('git',['-C',worktree,...args],{encoding:'utf8'}); } catch { return ''; } };
+  const names = new Set();
+  for (const l of git('ls-files').split('\n')){ const f = l.trim(); if (f) names.add(f); }
+  for (const l of git('ls-files','--others','--exclude-standard').split('\n')){ const f = l.trim(); if (f) names.add(f); }
+  return [...names].filter(f => anyGlob(f, globs)).length;
+}

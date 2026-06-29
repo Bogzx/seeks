@@ -1,7 +1,7 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import fs from 'node:fs'; import path from 'node:path'; import { execFileSync } from 'node:child_process';
 import { makeTempRepo } from './helpers.mjs';
-import { oracleDiffHash, DEFAULT_ORACLE_GLOBS } from '../hooks/lib/oracle.mjs';
+import { oracleDiffHash, oracleGlobsPresent, DEFAULT_ORACLE_GLOBS } from '../hooks/lib/oracle.mjs';
 const git = (repo, ...a) => execFileSync('git', ['-C', repo, ...a], { encoding:'utf8' });
 function commitAll(repo, msg){ git(repo,'add','-A'); git(repo,'commit','-q','-m',msg); return git(repo,'rev-parse','HEAD').trim(); }
 
@@ -35,4 +35,15 @@ test('empty-set hash is stable across repos', () => {
   fs.writeFileSync(path.join(a,'f'),'1'); fs.writeFileSync(path.join(b,'f'),'2');
   const ba = commitAll(a,'i'); const bb = commitAll(b,'i');
   assert.equal(oracleDiffHash(a, ba).hash, oracleDiffHash(b, bb).hash);
+});
+test('oracleGlobsPresent counts files matching the globs in the worktree', () => {
+  const repo = makeTempRepo();
+  fs.mkdirSync(path.join(repo,'test'),{recursive:true});
+  fs.writeFileSync(path.join(repo,'test','a.test.js'),'1\n');
+  fs.writeFileSync(path.join(repo,'src.js'),'x\n');
+  commitAll(repo,'init');
+  assert.equal(oracleGlobsPresent(repo), 1);                 // the committed test file
+  assert.equal(oracleGlobsPresent(repo, ['nope/**']), 0);    // vacuous — nothing matches
+  fs.writeFileSync(path.join(repo,'test','b.test.js'),'2\n');
+  assert.equal(oracleGlobsPresent(repo), 2);                 // untracked test file also counts
 });
