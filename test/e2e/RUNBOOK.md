@@ -33,8 +33,13 @@ Optional env: `SEEKS_E2E_MODEL` (default `sonnet`), `SEEKS_E2E_CLAUDE_BIN` (defa
 | `stuck` | best-effort | `⛔ halt: stuck` | unclosable item, no reseed → stuck (closes F11) |
 | `l1-readonly` | best-effort | `⏸ needs-human` | L1 cannot edit source — PreToolUse denies edits/commits even under bypassPermissions; a code-fix oracle escalates instead of being "fixed" |
 | `l3-deliver` | best-effort | `✅ done` (pushed) | L3 autonomously pushes `seeks/<name>` to a local bare remote on done (push mode, no gh); the delivery gate holds (`delivered:true`) |
+| `time-budget` | best-effort | `⏰ time-budget` | a never-green loop halts on the **wall clock** before `max_iters` (Plan 1 ceiling, agent-independent) |
+| `no-oracle` | best-effort | `⏸ needs-human` | a subjective goal with **no runnable check** can't self-certify `done` — the gate hard-refuses and it escalates |
 
 LLM runs are non-deterministic: invariants assert **outcomes**, and a divergent or oracle-cheating run surfaces as a FAIL with the actual state — never a silent pass. `done`/`dry-sweep` are the reliable B-proof; the three adversarial scenarios close F11 coverage on a best-effort live basis.
+
+### A/B comparison — the value benchmark
+seeks's *value* (vs. a plain agent) is best shown by a **matched pair**: drive the same goal on identical repo copies once **with** the plugin (`--plugin-dir`) and once with a plain `claude -p` (no plugin) in a naive persist-until-done loop, then grade **both** with an oracle neither side controls (re-run the real check; diff the test/oracle files for tampering; for L1, check for forbidden edits). The repeatable deltas: **thoroughness** (until-dry/breadth vs. stop-early), the **hard guarantees** (L1 no-edit, no-push/merge, no-fake-done, time ceiling), and **gated delivery**. LLM runs are non-deterministic — run each cell **N×** for a pass-rate, and treat a divergent/cheating run as a FAIL with the actual state, never a silent pass.
 
 ### Real-repo runner (`realrun.mjs`) — creative bug-hunt on a live project
 `test/e2e/realrun.mjs` drives a **creative bug-hunt** loop against a real repo (not a fixture): it scaffolds an armed loop on a `seeks/<name>` worktree, seeds one creative-review item per source module, and drives a `claude -p` child that READS each module hunting real defects — `ruff`+`mypy` are the regression floor, until-dry on *findings* (`min_dry_sweeps:2`).

@@ -5,7 +5,7 @@ import { acquire, release } from '../hooks/lib/lock.mjs';
 import { readHookState, resetFires } from '../hooks/lib/hookstate.mjs';
 import { composeBanner } from '../hooks/lib/banner.mjs';
 import { nextLens, DEFAULT_LENSES } from '../hooks/lib/lenses.mjs';
-import { oracleDiffHash, DEFAULT_ORACLE_GLOBS } from '../hooks/lib/oracle.mjs';
+import { oracleDiffHash, oracleGlobsPresent, DEFAULT_ORACLE_GLOBS } from '../hooks/lib/oracle.mjs';
 import { DEFAULT_DENYLIST } from '../hooks/lib/policy.mjs';
 import { deliver } from '../hooks/lib/deliver.mjs';
 import os from 'node:os';
@@ -21,6 +21,7 @@ const USAGE = `seeks <cmd> <name> [args]
   condition-reject <name> <id>  backlog-add <name> <task...>  backlog-count <name>
   log-add <name> <line...>      sweep-tick <name> <found> [lens]   sweep-next-lens <name>
   progress-tick <name>          reset-fires <name>                 lock-acquire <name>
+  budget-set <name> <sec>       start-clock <name>
   lock-release <name>           gc <name>                          banner <name> <action> [stopKind]
   latest                        base-record <name>                 base-check <name>
   oracle-diff <name>            oracle-ack <name>                   deliver <name>
@@ -30,6 +31,12 @@ try {
 switch (cmd) {
   case 'init': { const rd = rdOf(a[0]); fs.mkdirSync(rd,{recursive:true});
     const st = JSON.parse(a[1]);
+    if (Array.isArray(st.conditions)) {                          // structured done-conditions → fail-closed: must have a real check or be explicitly human-judged
+      const exec = st.conditions.filter(c => c && c.cmd && !c.human_required).length;
+      const human = st.conditions.some(c => c && c.human_required);
+      if (exec === 0 && !human) { process.stderr.write('[seeks] init refused: a loop needs >=1 executable done-condition (with a cmd) or an explicit human_required condition'); process.exit(1); }
+      st.executable_condition_count = exec;
+    }
     if (!st.level) st.level = 'L2';                               // persist level/globs/denylist so the PreToolUse hook reads them from status alone
     if (!st.oracle_globs) st.oracle_globs = DEFAULT_ORACLE_GLOBS;
     if (!st.denylist) st.denylist = DEFAULT_DENYLIST;
@@ -53,8 +60,17 @@ switch (cmd) {
     if (found > 0) { dry = 0; dry_lenses = []; }                                  // found → re-seed, reset the dry streak
     else if (!lens || !dry_lenses.includes(lens)) { dry += 1; if (lens) dry_lenses.push(lens); } // a DISTINCT lens (or legacy no-lens) advances; a repeat does not
     const sweep_found_total = (s.sweep_found_total ?? 0) + (found > 0 ? found : 0);  // cumulative bugs found via sweeps — a finding sweep is progress (even report-only, no reseed)
+    let depth = s.depth, dry_depth_rounds = s.dry_depth_rounds;                      // exhaustive mode: a full-catalog dry sweep deepens the review
+    const catalog = s.sweep_lenses ?? DEFAULT_LENSES;
+    if (s.exhaustive === true && found === 0 && catalog.every(l => dry_lenses.includes(l))) {
+      depth = (s.depth ?? 1) + 1;                       // covered every angle dry → go deeper
+      dry_depth_rounds = (s.dry_depth_rounds ?? 0) + 1;
+      dry = 0; dry_lenses = [];                         // reset the streak to re-cover the catalog at the new depth
+    }
     writeStatusAtomic(rd, { ...s, dry_sweeps: dry, dry_lenses, lenses_used, sweep_found_total,
-      last_sweep: found > 0 ? `${found} found` : `dry ${dry}/${s.min_dry_sweeps ?? 0}${lens ? ` (${lens})` : ''}`, updated_at: new Date().toISOString() }); break; }
+      ...(depth !== undefined ? { depth } : {}), ...(dry_depth_rounds !== undefined ? { dry_depth_rounds } : {}),
+      last_sweep: found > 0 ? `${found} found` : `dry ${dry}/${s.min_dry_sweeps ?? 0}${lens ? ` (${lens})` : ''}${s.exhaustive ? ` · depth ${depth ?? 1}` : ''}`,
+      updated_at: new Date().toISOString() }); break; }
   case 'sweep-next-lens': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; out(nextLens(s.lenses_used ?? [], s.sweep_lenses ?? DEFAULT_LENSES)); break; }
   case 'progress-tick': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; const open = countOpen(rd);
     const prev = s.open_items ?? open; const closedDelta = prev - open; const reseeded = open > prev;
@@ -69,6 +85,10 @@ switch (cmd) {
     if (!acquire(rd, Date.now(), ttl).ok) { process.stderr.write('loop already running'); process.exit(1); } break; }
   case 'lock-release': release(rdOf(a[0])); break;
   case 'reset-fires': resetFires(rdOf(a[0])); break;   // zero stop_fires → max_iters is a per-/seeks:start budget (F3)
+  case 'budget-set': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {};   // wall-clock budget (sec); enforced by gate + pre-tool
+    writeStatusAtomic(rd, { ...s, time_budget_sec: Number(a[1]) || null, updated_at: new Date().toISOString() }); out('ok'); break; }
+  case 'start-clock': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {};   // stamp start so the budget is per-/seeks:start
+    writeStatusAtomic(rd, { ...s, started_at: Date.now(), updated_at: new Date().toISOString() }); out('ok'); break; }
   case 'gc': { const name = a[0]; const root = primaryRoot();
     try { execFileSync('git',['-C',root,'worktree','remove','--force',`.claude/worktrees/${name}`]); } catch {}
     try { execFileSync('git',['-C',root,'branch','-D',`seeks/${name}`]); } catch {}
@@ -99,9 +119,11 @@ switch (cmd) {
     let cur = ''; try { cur = execFileSync('git',['-C',root,'rev-parse',s.base_ref || 'HEAD'],{encoding:'utf8'}).trim(); } catch {}
     out(!cur ? 'unknown' : (cur === s.base_sha ? 'current' : 'moved')); break; }
   case 'oracle-diff': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {};   // mechanical: which oracle files changed vs base (no judgment)
-    const r = oracleDiffHash(s.worktree_path, s.base_sha, s.oracle_globs ?? DEFAULT_ORACLE_GLOBS);
-    writeStatusAtomic(rd, { ...s, oracle_changed_count: r.files.length, updated_at: new Date().toISOString() });
-    out(JSON.stringify({ files:r.files, hash:r.hash, count:r.files.length })); break; }
+    const globs = s.oracle_globs ?? DEFAULT_ORACLE_GLOBS;
+    const r = oracleDiffHash(s.worktree_path, s.base_sha, globs);
+    const present = oracleGlobsPresent(s.worktree_path, globs);                   // 0 → vacuous accounting (no test-glob files to hash)
+    writeStatusAtomic(rd, { ...s, oracle_changed_count: r.files.length, oracle_globs_present: present, updated_at: new Date().toISOString() });
+    out(JSON.stringify({ files:r.files, hash:r.hash, count:r.files.length, globs_present: present })); break; }
   case 'oracle-ack': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {};   // verifier records it accounted for exactly this changed-set; gate compares to live
     const r = oracleDiffHash(s.worktree_path, s.base_sha, s.oracle_globs ?? DEFAULT_ORACLE_GLOBS);
     writeStatusAtomic(rd, { ...s, oracle_ack_hash: r.hash, oracle_changed_count: r.files.length, updated_at: new Date().toISOString() }); out('ok'); break; }

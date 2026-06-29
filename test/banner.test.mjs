@@ -15,6 +15,24 @@ test('max-iters distinct from stuck', () => {
   assert.match(composeBanner(s,{action:'allow',stopKind:'max_iters'},50), /⛔ halt: max-iters \(50\)/);
   assert.match(composeBanner({...s,no_progress_count:3},{action:'allow',stopKind:'stuck'},20), /⛔ halt: stuck \(3 no-progress\)/);
 });
+test('time-budget halt renders a clock banner', () => {
+  const out = composeBanner({ loop:'x' }, { action:'allow', stopKind:'time-budget' }, 7);
+  assert.match(out, /⏰ halt: time budget/);
+  assert.match(out, /pass 7/);
+});
+test('time-budget banner shows a findings/state summary tail', () => {
+  const out = composeBanner({ loop:'x', sweep_found_total:5, open_items:3, depth:2 },
+    { action:'allow', stopKind:'time-budget' }, 9);
+  assert.match(out, /⏰ halt: time budget/);
+  assert.match(out, /5 found/); assert.match(out, /3 open/); assert.match(out, /depth 2/);
+});
+test('continuing banner shows time remaining when a budget is set', () => {
+  const s = { loop:'x', open_items_prev:3, open_items:2, last_change:'edited a.ts', started_at:0, time_budget_sec:3600 };
+  const out = composeBanner(s, { action:'block', stopKind:null }, 4, { now: 600000 }); // 10m in, 50m left
+  assert.match(out, /50m left/);
+  const noBudget = composeBanner({ loop:'x', open_items:2 }, { action:'block', stopKind:null }, 4, { now: 600000 });
+  assert.ok(!noBudget.includes('left'));
+});
 test('banner shows oracle segment when changes are present', () => {
   assert.match(composeBanner({ ...s, oracle_changed_count: 2 }, { action:'block', stopKind:null }, 5), /oracle: 2 changed/);
   assert.ok(!composeBanner(s, { action:'block', stopKind:null }, 5).includes('oracle:'));

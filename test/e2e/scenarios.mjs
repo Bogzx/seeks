@@ -163,4 +163,36 @@ export const scenarios = {
       { ok: s.delivery_mode==='push' || s.delivery_mode==='pr', msg:`expected push/pr delivery, got ${s.delivery_mode}` },
     ],
   },
+  // ---- time budget: a never-green loop must halt on the WALL CLOCK, not max_iters ----
+  'time-budget': {
+    expectKind: 'time-budget', maxTurns: 60, maxBudgetUsd: 2,
+    setup(){
+      const r = initRepo();
+      W(r,'package.json', pkg('tb','node -e "process.exit(1)"'));   // never green
+      commit(r,'fixture: never-green (time-bounded)');
+      return scaffold(r,'e2etb',{ status:{ min_dry_sweeps:0, condition_reject_threshold:99, stuck_threshold:99, max_iters:99, time_budget_sec:60, started_at:Date.now() },
+        backlog:['Keep trying (it never converges); the wall-clock budget should halt this, not max_iters'],
+        spec:'# Goal\nNever converges; halt on the time budget.\n## Done-conditions\n- id: tests — `npm test` exits 0 (never)\n' });
+    },
+    invariants:(s,hook)=>[
+      { ok: (hook.stop_fires??0) < 99, msg:`expected a time halt before max_iters(99), got stop_fires=${hook.stop_fires}` },
+      { ok: s.done!==true, msg:`must not fake done, got done=${s.done}` },
+    ],
+  },
+  // ---- no executable oracle (subjective) → the gate must NOT let it self-certify done ----
+  'no-oracle': {
+    expectKind: 'needs_human', maxTurns: 80, maxBudgetUsd: 2,
+    setup(){
+      const r = initRepo();
+      W(r,'README.md','Improve this code — subjective, with NO runnable done-condition.\n');
+      commit(r,'fixture: subjective goal');
+      return scaffold(r,'e2eno',{ status:{ min_dry_sweeps:0, condition_reject_threshold:2, max_iters:20, conditions:[{id:'judge',human_required:true}] },
+        backlog:['Improve the code; this goal is subjective (human_required) — converge, write findings, then set needs_human. You CANNOT certify done.'],
+        spec:'# Goal (subjective / human-judged)\nImprove the code. There is NO executable done-condition; the gate will not release done — escalate to needs-human.\n## Done-conditions\n- id: judge — human_required (no runnable command)\n' });
+    },
+    invariants:(s)=>[
+      { ok: s.done!==true, msg:`no-oracle loop must NOT certify done, got done=${s.done}` },
+      { ok: s.verifier_certified!==true, msg:`must not be certified, got ${s.verifier_certified}` },
+    ],
+  },
 };

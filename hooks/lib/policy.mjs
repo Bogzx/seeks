@@ -2,6 +2,7 @@
 // it is fixed code (no model). First matching DENY wins; default ALLOW. Only edit
 // tools + Bash are policed. See docs/superpowers/specs/2026-06-29-seeks-enforcement-plane-design.md §5.
 import { canon, isInside } from './paths.mjs'; import { anyGlob } from './glob.mjs';
+import { pastDeadline } from './budget.mjs';
 export const DEFAULT_DENYLIST = ['**/.env','**/secrets/**','.git/**'];
 const EDIT_TOOLS = new Set(['Edit','Write','MultiEdit','NotebookEdit']);
 const allow = { action:'allow', reason:null };
@@ -61,10 +62,14 @@ function bashGit(cmd){
 }
 export function decidePreTool(toolName, toolInput, ctx = {}){
   const level = String(ctx.level || 'L2').toUpperCase();
+  const wrapUp = pastDeadline({ started_at: ctx.startedAt, time_budget_sec: ctx.timeBudgetSec }, ctx.now ?? Date.now());
   if (toolName === 'Bash'){
-    const op = bashGit(toolInput?.command);
+    const cmd = toolInput?.command;
+    const op = bashGit(cmd);
     if (op === 'push' || op === 'merge') return deny('[seeks] delivery is automated via "seeks deliver" (L3 only); the agent never pushes/merges/rebases directly.');
     if (op === 'commit' && level === 'L1') return deny('[seeks] L1 is report-only: no commits. Write findings under .seeks/run/<name>/.');
+    if (wrapUp && op !== 'commit' && !/seeks\.mjs/.test(String(cmd || '')))   // past the deadline: only wrap-up bash (seeks CLI, git commit)
+      return deny('[seeks] time budget reached — only wrap-up allowed (seeks CLI, git commit, write summary.md), then end your turn.');
     return allow;
   }
   if (!EDIT_TOOLS.has(toolName)) return allow;
@@ -77,5 +82,6 @@ export function decidePreTool(toolName, toolInput, ctx = {}){
   if (rel != null && anyGlob(rel, ctx.denylist ?? [])) return deny(`[seeks] '${rel}' is on the denylist — refusing to edit.`);
   if (ctx.worktreePath && !isInside(abs, ctx.worktreePath)) return deny('[seeks] edits must stay inside the loop worktree.');
   if (level === 'L1') return deny('[seeks] L1 is report-only: no source edits. Write findings under .seeks/run/<name>/.');
+  if (wrapUp) return deny('[seeks] time budget reached — only summary/run-dir writes allowed; stop editing source and end your turn.');
   return allow;
 }
