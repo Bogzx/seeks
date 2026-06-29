@@ -15,6 +15,11 @@ test('max-iters distinct from stuck', () => {
   assert.match(composeBanner(s,{action:'allow',stopKind:'max_iters'},50), /⛔ halt: max-iters \(50\)/);
   assert.match(composeBanner({...s,no_progress_count:3},{action:'allow',stopKind:'stuck'},20), /⛔ halt: stuck \(3 no-progress\)/);
 });
+test('time-budget halt renders a clock banner', () => {
+  const out = composeBanner({ loop:'x' }, { action:'allow', stopKind:'time-budget' }, 7);
+  assert.match(out, /⏰ halt: time budget/);
+  assert.match(out, /pass 7/);
+});
 test('banner shows oracle segment when changes are present', () => {
   assert.match(composeBanner({ ...s, oracle_changed_count: 2 }, { action:'block', stopKind:null }, 5), /oracle: 2 changed/);
   assert.ok(!composeBanner(s, { action:'block', stopKind:null }, 5).includes('oracle:'));
