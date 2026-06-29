@@ -32,3 +32,11 @@ test('fail-open (exit 0, no throw) on a corrupt status.json (M3)', () => {
   fs.writeFileSync(path.join(rd,'status.json'), '{ not valid json');   // readStatus throws after retries
   assert.equal(run(wt, { tool_name:'Edit', tool_input:{ file_path: path.join(wt,'src','a.js') } }), '');  // must exit 0 with no deny
 });
+test('denies edits once past the time budget', () => {
+  const { wt, rd } = armLoop('L2');
+  const s = JSON.parse(fs.readFileSync(path.join(rd,'status.json'),'utf8'));
+  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify({ ...s, started_at: 1000, time_budget_sec: 1 })); // deadline far in the past
+  const out = JSON.parse(run(wt, { tool_name:'Edit', tool_input:{ file_path: path.join(wt,'src','a.js') } }));
+  assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(out.hookSpecificOutput.permissionDecisionReason, /time budget/);
+});
