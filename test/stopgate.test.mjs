@@ -23,3 +23,17 @@ test('allows + halts on stuck when no_progress_count ≥ stuck_threshold', () =>
   assert.ok(!out.decision, 'stuck is a terminal allow — must NOT block');
   assert.match(out.systemMessage, /halt: stuck \(3 no-progress\)/);
 });
+test('a certify with an unaccounted oracle change is re-blocked', () => {
+  const repo = makeTempRepo();                                   // makeTempRepo already git-inits + configs user
+  fs.mkdirSync(path.join(repo,'test'),{recursive:true});
+  fs.writeFileSync(path.join(repo,'test','a.test.js'),'1\n');
+  execFileSync('git',['add','-A'],{cwd:repo}); execFileSync('git',['commit','-q','-m','i'],{cwd:repo});
+  const base = execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim();
+  const rd = path.join(repo,'.seeks','run','ui'); fs.mkdirSync(rd,{recursive:true});
+  fs.writeFileSync(path.join(repo,'test','a.test.js'),'2\n');    // a test changed after "certify"
+  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify({ loop:'ui', armed:true, done:true, verifier_certified:true,
+    worktree_path:repo, base_sha:base, oracle_globs:['test/**'], oracle_ack_hash:'STALE',
+    open_items:0, max_iters:50, stuck_threshold:3, no_progress_count:0, min_dry_sweeps:0 }));
+  const out = JSON.parse(run(repo));
+  assert.equal(out.decision, 'block', 'unaccounted oracle change must re-block certify');
+});
