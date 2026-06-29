@@ -27,17 +27,32 @@ test('edits outside the worktree denied', () => {
 });
 test('NotebookEdit uses notebook_path', () =>
   assert.equal(decidePreTool('NotebookEdit', { notebook_path: `${WT}/n.ipynb` }, ctx('L1')).action, 'deny'));
-test('git push denied at L1/L2, allowed at L3', () => {
-  assert.equal(decidePreTool('Bash', { command: 'git push origin x' }, ctx('L1')).action, 'deny');
-  assert.equal(decidePreTool('Bash', { command: 'git push origin x' }, ctx('L2')).action, 'deny');
-  assert.equal(decidePreTool('Bash', { command: 'git push origin x' }, ctx('L3')).action, 'allow');
+test('git push/merge/rebase denied at EVERY level (delivery is CLI-only)', () => {
+  for (const lvl of ['L1','L2','L3']){
+    assert.equal(decidePreTool('Bash', { command: 'git push origin x' }, ctx(lvl)).action, 'deny');
+    assert.equal(decidePreTool('Bash', { command: 'git merge main' }, ctx(lvl)).action, 'deny');
+    assert.equal(decidePreTool('Bash', { command: 'git rebase main' }, ctx(lvl)).action, 'deny');
+  }
+});
+test('git policy is not bypassed by global options / git.exe (H1)', () => {
+  const c = ctx('L2');
+  for (const cmd of ['git -C /wt push origin main','git.exe push','git --no-pager push',
+                     'git -c k=v push origin x','git -C /wt rebase main','git -C /wt merge main']){
+    assert.equal(decidePreTool('Bash', { command: cmd }, c).action, 'deny', `should deny: ${cmd}`);
+  }
+  assert.equal(decidePreTool('Bash', { command: 'git -C /wt commit -m x' }, ctx('L1')).action, 'deny');   // L1 commit via -C
+  assert.equal(decidePreTool('Bash', { command: 'git commit -m x && git push' }, c).action, 'deny');        // push in 2nd segment
+});
+test('git policy does not false-positive on substrings (M1)', () => {
+  const c = ctx('L2');
+  assert.equal(decidePreTool('Bash', { command: 'git commit -m "docs: how to git push"' }, c).action, 'allow');
+  assert.equal(decidePreTool('Bash', { command: 'echo remember to git push later' }, c).action, 'allow');
+  assert.equal(decidePreTool('Bash', { command: 'npm run push-docs' }, c).action, 'allow');
 });
 test('git commit denied at L1 only', () => {
   assert.equal(decidePreTool('Bash', { command: 'git commit -m x' }, ctx('L1')).action, 'deny');
   assert.equal(decidePreTool('Bash', { command: 'git commit -m x' }, ctx('L2')).action, 'allow');
 });
-test('git merge onto base denied below L3', () =>
-  assert.equal(decidePreTool('Bash', { command: 'git merge main' }, ctx('L2')).action, 'deny'));
 test('unpoliced tools and benign bash allow', () => {
   assert.equal(decidePreTool('Read', edit(`${WT}/.env`), ctx('L1')).action, 'allow');
   assert.equal(decidePreTool('Bash', { command: 'npm test' }, ctx('L2')).action, 'allow');

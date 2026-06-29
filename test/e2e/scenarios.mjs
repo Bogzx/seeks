@@ -142,4 +142,25 @@ export const scenarios = {
       { ok: s.verifier_certified!==true, msg:`L1 must NOT be verifier_certified, got ${s.verifier_certified}` },
     ],
   },
+  // ---- L3: prove autonomous delivery on done (push to a local bare remote, no gh needed) ----
+  'l3-deliver': {
+    expectKind: 'done', maxTurns: 140, maxBudgetUsd: 4,
+    setup(){
+      const r = initRepo();
+      W(r,'package.json', pkg('l3','node --test'));
+      W(r,'src/add.mjs', "export function add(a, b) { throw new Error('not implemented'); }\n");
+      W(r,'test/add.test.mjs', "import { test } from 'node:test'; import assert from 'node:assert/strict';\nimport { add } from '../src/add.mjs';\ntest('adds', () => { assert.equal(add(2,3),5); });\n");
+      commit(r,'fixture: failing add (L3 will deliver the fix)');
+      const bare = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'seeks-e2e-bare-')));
+      sh('git',['init','--bare','-q',bare], r); sh('git',['remote','add','origin',bare], r);   // non-GitHub remote → push mode, no gh required
+      return scaffold(r,'e2el3',{ status:{ level:'L3', min_dry_sweeps:0, max_iters:30 },
+        backlog:['Implement add(a,b) in src/add.mjs so `npm test` (node --test) exits 0'],
+        spec:'# Goal (L3 autonomous)\nImplement add so the tests pass. This loop is **L3**: after certifying, run `seeks deliver <name>` to push seeks/<name> and open a PR (a local bare remote is configured → delivery resolves to push mode). NEVER merge.\n## Done-conditions\n- id: tests — `npm test` exits 0\n' });
+    },
+    invariants:(s)=>[
+      { ok: s.done===true, msg:`expected done=true, got ${s.done}` },
+      { ok: s.delivered===true, msg:`expected delivered=true, got ${s.delivered}` },
+      { ok: s.delivery_mode==='push' || s.delivery_mode==='pr', msg:`expected push/pr delivery, got ${s.delivery_mode}` },
+    ],
+  },
 };
