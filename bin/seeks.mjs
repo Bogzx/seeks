@@ -54,8 +54,17 @@ switch (cmd) {
     if (found > 0) { dry = 0; dry_lenses = []; }                                  // found → re-seed, reset the dry streak
     else if (!lens || !dry_lenses.includes(lens)) { dry += 1; if (lens) dry_lenses.push(lens); } // a DISTINCT lens (or legacy no-lens) advances; a repeat does not
     const sweep_found_total = (s.sweep_found_total ?? 0) + (found > 0 ? found : 0);  // cumulative bugs found via sweeps — a finding sweep is progress (even report-only, no reseed)
+    let depth = s.depth, dry_depth_rounds = s.dry_depth_rounds;                      // exhaustive mode: a full-catalog dry sweep deepens the review
+    const catalog = s.sweep_lenses ?? DEFAULT_LENSES;
+    if (s.exhaustive === true && found === 0 && catalog.every(l => dry_lenses.includes(l))) {
+      depth = (s.depth ?? 1) + 1;                       // covered every angle dry → go deeper
+      dry_depth_rounds = (s.dry_depth_rounds ?? 0) + 1;
+      dry = 0; dry_lenses = [];                         // reset the streak to re-cover the catalog at the new depth
+    }
     writeStatusAtomic(rd, { ...s, dry_sweeps: dry, dry_lenses, lenses_used, sweep_found_total,
-      last_sweep: found > 0 ? `${found} found` : `dry ${dry}/${s.min_dry_sweeps ?? 0}${lens ? ` (${lens})` : ''}`, updated_at: new Date().toISOString() }); break; }
+      ...(depth !== undefined ? { depth } : {}), ...(dry_depth_rounds !== undefined ? { dry_depth_rounds } : {}),
+      last_sweep: found > 0 ? `${found} found` : `dry ${dry}/${s.min_dry_sweeps ?? 0}${lens ? ` (${lens})` : ''}${s.exhaustive ? ` · depth ${depth ?? 1}` : ''}`,
+      updated_at: new Date().toISOString() }); break; }
   case 'sweep-next-lens': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; out(nextLens(s.lenses_used ?? [], s.sweep_lenses ?? DEFAULT_LENSES)); break; }
   case 'progress-tick': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; const open = countOpen(rd);
     const prev = s.open_items ?? open; const closedDelta = prev - open; const reseeded = open > prev;

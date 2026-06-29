@@ -206,3 +206,19 @@ test('budget-set + start-clock stamp the budget and start time', () => {
   s = JSON.parse(run(repo,'status-get','ui'));
   assert.ok(s.started_at >= before - 1000 && s.started_at <= Date.now() + 1000);
 });
+test('sweep-tick: exhaustive full-catalog dry bumps depth + dry_depth_rounds', () => {
+  const repo = makeTempRepo();
+  seed(repo,'ex',{ loop:'ex', exhaustive:true, sweep_lenses:['a','b'], dry_sweeps:0, dry_lenses:[], depth:1, dry_depth_rounds:0 });
+  run(repo,'sweep-tick','ex','0','a'); let s = JSON.parse(run(repo,'status-get','ex'));
+  assert.equal(s.dry_sweeps,1); assert.equal(s.depth,1); assert.equal(s.dry_depth_rounds,0); // catalog not yet covered
+  run(repo,'sweep-tick','ex','0','b'); s = JSON.parse(run(repo,'status-get','ex'));
+  assert.equal(s.depth,2, 'full catalog dry → deepen'); assert.equal(s.dry_depth_rounds,1);
+  assert.deepEqual(s.dry_lenses,[], 'streak reset for the new depth'); assert.equal(s.dry_sweeps,0);
+});
+test('sweep-tick: non-exhaustive is unchanged (no depth fields)', () => {
+  const repo = makeTempRepo();
+  seed(repo,'n',{ loop:'n', sweep_lenses:['a','b'], dry_sweeps:0, dry_lenses:[] });
+  run(repo,'sweep-tick','n','0','a'); run(repo,'sweep-tick','n','0','b');
+  const s = JSON.parse(run(repo,'status-get','n'));
+  assert.equal(s.dry_sweeps,2); assert.ok(s.depth === undefined); assert.ok(s.dry_depth_rounds === undefined);
+});
