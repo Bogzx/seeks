@@ -55,6 +55,16 @@ test('exhaustive done is gated by dry_depth_rounds, not dry_sweeps', () => {
   assert.equal(decide({ ...d, dry_depth_rounds:1 }, hs(1)).action, 'block', '1 depth round < default 2');
   assert.equal(decide({ ...d, dry_depth_rounds:2 }, hs(1)).stopKind, 'done', '2 depth rounds → satisfied');
 });
+test('done requires a real executable check when the count is known', () => {
+  const d = { ...base, done:true, verifier_certified:true };
+  assert.equal(decide({ ...d, executable_condition_count:0 }, hs(1)).action, 'block', 'no runnable check → cannot self-certify done');
+  assert.equal(decide({ ...d, executable_condition_count:1 }, hs(1)).stopKind, 'done');
+  assert.equal(decide(d, hs(1)).stopKind, 'done', 'legacy (count unset) → fail open, unchanged');
+});
+test('a no-check loop escalates rather than faking done', () => {
+  const d = { ...base, done:true, verifier_certified:true, executable_condition_count:0, needs_human:true };
+  assert.equal(decide(d, hs(1)).stopKind, 'needs_human');  // can't done → needs-human is the honest exit
+});
 test('wind-down: near the deadline the block reason says to wrap up', () => {
   const s = { ...base, started_at: 0, time_budget_sec: 1000 };   // deadline 1e6, window 150s
   const r = decide(s, hs(1), 900000);                            // inside wind-down, before deadline

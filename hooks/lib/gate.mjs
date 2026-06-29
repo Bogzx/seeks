@@ -11,11 +11,14 @@ function sweepSatisfied(s){   // exhaustive loops must cover the catalog + deepe
     ? (s.dry_depth_rounds ?? 0) >= (s.min_dry_depth_rounds ?? 2)
     : (s.dry_sweeps ?? 0) >= (s.min_dry_sweeps ?? 0);
 }
+function hasRealCheck(s){   // a loop with a KNOWN-zero executable-condition count can't self-certify done (→ needs-human); unknown = legacy fail-open
+  return s.executable_condition_count == null || s.executable_condition_count >= 1;
+}
 export function decide(status, hookState, now = Date.now()){
   const s = status || {}; const hs = hookState || {};
   if (s.armed !== true) return { action:'allow', reason:null, stopKind:null };
   if (s.done === true && s.verifier_certified === true
-      && sweepSatisfied(s)
+      && sweepSatisfied(s) && hasRealCheck(s)
       && oracleSatisfied(s)
       && deliverySatisfied(s)) return { action:'allow', reason:null, stopKind:'done' };
   if (s.needs_human === true) return { action:'allow', reason:null, stopKind:'needs_human' };
@@ -23,7 +26,7 @@ export function decide(status, hookState, now = Date.now()){
   if ((s.no_progress_count ?? 0) >= (s.stuck_threshold ?? 3)) return { action:'allow', reason:null, stopKind:'stuck' };
   if ((hs.stop_fires ?? 0) >= (s.max_iters ?? 50)) return { action:'allow', reason:null, stopKind:'max_iters' };
   if (s.done === true && s.verifier_certified === true
-      && sweepSatisfied(s)
+      && sweepSatisfied(s) && hasRealCheck(s)
       && oracleSatisfied(s) && !deliverySatisfied(s))   // certified but L3-undelivered → nudge to deliver (M2)
     return { action:'block', stopKind:null,
       reason: `[seeks] Loop ${s.loop} is certified but not delivered. This is an L3 loop — run "seeks deliver ${s.loop}" (pushes seeks/${s.loop} and opens a PR; degrades to push/local if gh/remote are absent), then end your turn.` };
