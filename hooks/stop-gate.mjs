@@ -20,7 +20,7 @@ try {                                                       // fail-open: a hook
         } catch {}
       }
       const d = decide(status, hs, Date.now());
-      const banner = composeBanner(status, d, hs.stop_fires, { color: !!process.env.SEEKS_BANNER_COLOR });
+      const banner = composeBanner(status, d, hs.stop_fires, { color: !!process.env.SEEKS_BANNER_COLOR, now: Date.now() });
       process.stdout.write(d.action === 'block'
         ? JSON.stringify({ decision:'block', reason:d.reason, systemMessage:banner })
         : JSON.stringify({ systemMessage: banner }));

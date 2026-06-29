@@ -1,3 +1,4 @@
+import { deadlineMs } from './budget.mjs';
 // Color is OPT-IN (opts.color, gated by SEEKS_BANNER_COLOR in the hook) — default is plain.
 // The systemMessage channel was confirmed to render plain in v1; a channel that strips ANSI
 // would otherwise show raw escapes, so we never emit codes unless the operator asks for them.
@@ -24,5 +25,8 @@ export function composeBanner(status, decision, stopFires, opts = {}){
   const lens = s.lenses_used?.length ? ` (lens: ${s.lenses_used[s.lenses_used.length - 1]})` : '';
   const sweep = (s.min_dry_sweeps ?? 0) > 0 ? ` · sweep ${s.dry_sweeps ?? 0}/${s.min_dry_sweeps} dry${lens}` : '';
   const oracle = (s.oracle_changed_count ?? 0) > 0 ? ` · oracle: ${s.oracle_changed_count} changed` : '';
-  return `${head} · items ${s.open_items_prev ?? s.open_items}→${s.open_items}${sweep}${oracle} · ${change}${verdict} · continuing`;
+  const dl = deadlineMs(s); let left = '';
+  if (dl != null){ const remMs = dl - (opts.now ?? Date.now());
+    left = remMs <= 0 ? ' · ⏰ 0s left' : ` · ⏰ ${remMs >= 90000 ? Math.round(remMs/60000)+'m' : Math.round(remMs/1000)+'s'} left`; }
+  return `${head} · items ${s.open_items_prev ?? s.open_items}→${s.open_items}${sweep}${oracle} · ${change}${verdict}${left} · continuing`;
 }
