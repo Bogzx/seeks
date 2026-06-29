@@ -26,3 +26,9 @@ test('denies a direct status.json write', () => {
   const out = JSON.parse(run(wt, { tool_name:'Write', tool_input:{ file_path: path.join(rd,'status.json') } }));
   assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
 });
+test('fail-open (exit 0, no throw) on a corrupt status.json (M3)', () => {
+  const repo = makeTempRepo(); const wt = path.join(repo,'.claude','worktrees','ui'); fs.mkdirSync(wt,{recursive:true});
+  const rd = path.join(repo,'.seeks','run','ui'); fs.mkdirSync(rd,{recursive:true});
+  fs.writeFileSync(path.join(rd,'status.json'), '{ not valid json');   // readStatus throws after retries
+  assert.equal(run(wt, { tool_name:'Edit', tool_input:{ file_path: path.join(wt,'src','a.js') } }), '');  // must exit 0 with no deny
+});
