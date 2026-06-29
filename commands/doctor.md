@@ -11,3 +11,5 @@ Report:
 2) **orphaned worktrees/branches** under `.claude/worktrees/` vs `.seeks/loops/`.
 
 3) **regression probe** — for each loop, read `hook-state.json` `stop_fires`; if a loop's history shows it repeatedly halting near ~8 fires *despite* making progress (the signal that the platform's progress-reset broke), advise the user to add `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP=0` to their `settings.json` `env`. Note: a plugin cannot self-set this.
+
+4) **usage tier** — print `node "${CLAUDE_PLUGIN_ROOT}/bin/seeks.mjs" tier-get` (the active tier + its per-role models and caps, or `none` if unset). Change it with `node … tier-set <light|balanced|all-out>` (or edit `~/.claude/seeks.json`). New loops scaffold from the tier; existing loops keep their `config.json`.
