@@ -26,3 +26,8 @@ test('anyGlob ORs the set', () => {
   assert.equal(anyGlob('a/.env', ['**/secrets/**', '**/.env']), true);
   assert.equal(anyGlob('src/main.mjs', ['**/secrets/**', '**/.env']), false);
 });
+test('win32 matching is case-insensitive; other platforms case-sensitive (L1)', () => {
+  assert.equal(globMatch('wt/Secrets/k', '**/secrets/**', 'win32'), true);   // uppercase path vs lowercase pattern
+  assert.equal(globMatch('config/x', '**/Config/**', 'win32'), true);        // uppercase pattern vs lowercase path
+  assert.equal(globMatch('config/x', '**/Config/**', 'linux'), false);       // case-sensitive off win32
+});
