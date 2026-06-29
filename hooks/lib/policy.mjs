@@ -19,8 +19,7 @@ export function decidePreTool(toolName, toolInput, ctx = {}){
   const level = String(ctx.level || 'L2').toUpperCase();
   if (toolName === 'Bash'){
     const op = bashGit(toolInput?.command);
-    if (op === 'push'  && level !== 'L3') return deny(`[seeks] ${level}: this loop never pushes — 'git push' is blocked.`);
-    if (op === 'merge' && level !== 'L3') return deny(`[seeks] ${level}: this loop never merges/rebases onto the base.`);
+    if (op === 'push' || op === 'merge') return deny('[seeks] delivery is automated via "seeks deliver" (L3 only); the agent never pushes/merges/rebases directly.');
     if (op === 'commit' && level === 'L1') return deny('[seeks] L1 is report-only: no commits. Write findings under .seeks/run/<name>/.');
     return allow;
   }
