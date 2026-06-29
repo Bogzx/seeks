@@ -1,5 +1,5 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url'; import fs from 'node:fs'; import path from 'node:path';
+import { fileURLToPath } from 'node:url'; import fs from 'node:fs'; import path from 'node:path'; import os from 'node:os';
 import { execFileSync } from 'node:child_process'; import { makeTempRepo } from './helpers.mjs';
 const CLI = fileURLToPath(new URL('../bin/seeks.mjs', import.meta.url));
 const run = (repo, ...a) => execFileSync('node',[CLI,...a],{ cwd: repo }).toString().trim();
@@ -156,6 +156,28 @@ test('deliver L3 local-mode records delivered + mode', () => {
   assert.equal(out.delivered, true); assert.equal(out.mode, 'local');
   const s = JSON.parse(run(repo,'status-get','ui'));
   assert.equal(s.delivered, true); assert.equal(s.delivery_mode, 'local');
+});
+test('tier-set + tier-get round-trip via SEEKS_HOME', () => {
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'seeks-home-')));
+  const repo = makeTempRepo();
+  const r = (...a) => execFileSync('node',[CLI,...a],{ cwd: repo, env:{...process.env, SEEKS_HOME: home} }).toString().trim();
+  assert.equal(r('tier-get'), 'none');
+  assert.equal(r('tier-set','light'), 'ok');
+  const g = JSON.parse(r('tier-get'));
+  assert.equal(g.tier, 'light');
+  assert.equal(g.roles.verifier.model, 'sonnet');
+  assert.equal(g.max_iters, 30); assert.equal(g.min_dry_sweeps, 1);
+});
+test('tier-set rejects an unknown tier', () => {
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'seeks-home-')));
+  assert.throws(() => execFileSync('node',[CLI,'tier-set','bogus'],{ cwd: makeTempRepo(), env:{...process.env, SEEKS_HOME: home} }));
+});
+test('role reads {model,effort} from .seeks/config.json', () => {
+  const repo = makeTempRepo();
+  const sd = path.join(repo,'.seeks'); fs.mkdirSync(sd,{recursive:true});
+  fs.writeFileSync(path.join(sd,'config.json'), JSON.stringify({ roles:{ verifier:{model:'opus',effort:'max'} } }));
+  const out = JSON.parse(run(repo,'role','verifier'));
+  assert.equal(out.model,'opus'); assert.equal(out.effort,'max');
 });
 test('oracle-diff + oracle-ack round-trip on a real worktree', () => {
   const repo = makeTempRepo();
