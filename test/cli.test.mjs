@@ -244,3 +244,18 @@ test('init without conditions is unchanged (legacy)', () => {
   const s = JSON.parse(run(repo,'status-get','ui'));
   assert.ok(s.executable_condition_count === undefined);
 });
+test('oracle-diff surfaces oracle_globs_present (vacuous-accounting signal)', () => {
+  const repo = makeTempRepo();
+  fs.mkdirSync(path.join(repo,'test'),{recursive:true});
+  fs.writeFileSync(path.join(repo,'test','a.test.js'),'1\n');
+  execFileSync('git',['add','-A'],{cwd:repo}); execFileSync('git',['commit','-q','-m','i'],{cwd:repo});
+  const base = execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim();
+  seed(repo,'ui',{ loop:'ui', worktree_path:repo, base_sha:base, oracle_globs:['test/**'] });
+  let d = JSON.parse(run(repo,'oracle-diff','ui'));
+  assert.equal(d.globs_present, 1);
+  const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.oracle_globs_present, 1);
+  seed(repo,'v',{ loop:'v', worktree_path:repo, base_sha:base, oracle_globs:['nope/**'] });
+  d = JSON.parse(run(repo,'oracle-diff','v'));
+  assert.equal(d.globs_present, 0);   // vacuous: nothing matches → accounting would be empty
+});

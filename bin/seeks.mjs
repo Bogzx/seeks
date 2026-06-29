@@ -5,7 +5,7 @@ import { acquire, release } from '../hooks/lib/lock.mjs';
 import { readHookState, resetFires } from '../hooks/lib/hookstate.mjs';
 import { composeBanner } from '../hooks/lib/banner.mjs';
 import { nextLens, DEFAULT_LENSES } from '../hooks/lib/lenses.mjs';
-import { oracleDiffHash, DEFAULT_ORACLE_GLOBS } from '../hooks/lib/oracle.mjs';
+import { oracleDiffHash, oracleGlobsPresent, DEFAULT_ORACLE_GLOBS } from '../hooks/lib/oracle.mjs';
 import { DEFAULT_DENYLIST } from '../hooks/lib/policy.mjs';
 import { deliver } from '../hooks/lib/deliver.mjs';
 import os from 'node:os';
@@ -119,9 +119,11 @@ switch (cmd) {
     let cur = ''; try { cur = execFileSync('git',['-C',root,'rev-parse',s.base_ref || 'HEAD'],{encoding:'utf8'}).trim(); } catch {}
     out(!cur ? 'unknown' : (cur === s.base_sha ? 'current' : 'moved')); break; }
   case 'oracle-diff': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {};   // mechanical: which oracle files changed vs base (no judgment)
-    const r = oracleDiffHash(s.worktree_path, s.base_sha, s.oracle_globs ?? DEFAULT_ORACLE_GLOBS);
-    writeStatusAtomic(rd, { ...s, oracle_changed_count: r.files.length, updated_at: new Date().toISOString() });
-    out(JSON.stringify({ files:r.files, hash:r.hash, count:r.files.length })); break; }
+    const globs = s.oracle_globs ?? DEFAULT_ORACLE_GLOBS;
+    const r = oracleDiffHash(s.worktree_path, s.base_sha, globs);
+    const present = oracleGlobsPresent(s.worktree_path, globs);                   // 0 → vacuous accounting (no test-glob files to hash)
+    writeStatusAtomic(rd, { ...s, oracle_changed_count: r.files.length, oracle_globs_present: present, updated_at: new Date().toISOString() });
+    out(JSON.stringify({ files:r.files, hash:r.hash, count:r.files.length, globs_present: present })); break; }
   case 'oracle-ack': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {};   // verifier records it accounted for exactly this changed-set; gate compares to live
     const r = oracleDiffHash(s.worktree_path, s.base_sha, s.oracle_globs ?? DEFAULT_ORACLE_GLOBS);
     writeStatusAtomic(rd, { ...s, oracle_ack_hash: r.hash, oracle_changed_count: r.files.length, updated_at: new Date().toISOString() }); out('ok'); break; }
