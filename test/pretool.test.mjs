@@ -40,3 +40,17 @@ test('denies edits once past the time budget', () => {
   assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
   assert.match(out.hookSpecificOutput.permissionDecisionReason, /time budget/);
 });
+test('past deadline: wrap-up actions are allowed, other work denied', () => {
+  const { wt, rd } = armLoop('L2');
+  const s = JSON.parse(fs.readFileSync(path.join(rd,'status.json'),'utf8'));
+  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify({ ...s, started_at: 1000, time_budget_sec: 1 }));
+  // allowed wrap-up: git commit, seeks CLI, write summary.md in the run dir
+  assert.equal(run(wt, { tool_name:'Bash', tool_input:{ command:'git commit -m "wrap up"' } }), '');
+  assert.equal(run(wt, { tool_name:'Bash', tool_input:{ command:'node /x/bin/seeks.mjs progress-tick ui' } }), '');
+  assert.equal(run(wt, { tool_name:'Write', tool_input:{ file_path: path.join(rd,'summary.md') } }), '');
+  // denied: other bash work + push
+  let out = JSON.parse(run(wt, { tool_name:'Bash', tool_input:{ command:'npm test' } }));
+  assert.equal(out.hookSpecificOutput.permissionDecision, 'deny'); assert.match(out.hookSpecificOutput.permissionDecisionReason, /time budget/);
+  out = JSON.parse(run(wt, { tool_name:'Bash', tool_input:{ command:'git push origin HEAD' } }));
+  assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+});
