@@ -6,6 +6,8 @@ description: Per-pass discipline for an active seeks loop. Drive state ONLY thro
 # seeks — per-pass protocol
 
 > **CARDINAL RULE: do exactly ONE pass, then STOP and end your turn.** Never loop internally across passes. Ending your turn is what lets the Stop hook drive the next pass, advance `stop_fires` (so the `max_iters` backstop + stuck guard can fire), and survive context compaction. A loop where you never yield is unkillable by the hook.
+>
+> **Wind-down:** if the Stop-hook continue-message says the **time budget is nearly up**, treat it as a wind-down — do NOT start new work: write/refresh `summary.md` (what you found, what's still open), commit it, then end your turn. The clock will halt the loop shortly after.
 
 State for loop `<name>` lives in the PRIMARY checkout's `.seeks/run/<name>/`. You are usually inside the loop's worktree; **always mutate state through the CLI, which resolves the control plane via git** — never write `.seeks/...` by relative path yourself:
 `node "${CLAUDE_PLUGIN_ROOT}/bin/seeks.mjs" <subcommand> <name> ...`  (run via the Bash tool).
