@@ -6,7 +6,11 @@ export function composeBanner(status, decision, stopFires, opts = {}){
   const C = opts.color ? { g:'\x1b[32m', r:'\x1b[31m', y:'\x1b[33m', z:'\x1b[0m' }
                        : { g:'', r:'', y:'', z:'' };
   if (decision.action === 'allow'){
-    if (decision.stopKind==='done') return `${head} · ${C.g}✅ done${C.z}`;
+    if (decision.stopKind==='done'){
+      const dm = s.delivery_mode;
+      const deliv = dm === 'pr' ? ` · PR ${s.pr_url ?? '(created)'}` : dm === 'push' ? ` · pushed (no PR)` : dm === 'local' ? ` · branch kept local` : '';
+      return `${head} · ${C.g}✅ done${C.z}${deliv}`;
+    }
     if (decision.stopKind==='needs_human') return `${head} · ${C.y}⏸ needs-human: ${s.last_verdict ?? 'human required'}${C.z}`;
     if (decision.stopKind==='stuck') return `${head} · ${C.r}⛔ halt: stuck (${s.no_progress_count ?? 0} no-progress)${C.z}`;
     if (decision.stopKind==='max_iters') return `${head} · ${C.r}⛔ halt: max-iters (${pass})${C.z}`;
