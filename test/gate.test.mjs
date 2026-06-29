@@ -49,3 +49,9 @@ test('done still wins over an elapsed budget', () => {
   const d = { ...base, done:true, verifier_certified:true, started_at:1000, time_budget_sec:5 };
   assert.equal(decide(d, hs(1), 6000).stopKind, 'done');
 });
+test('exhaustive done is gated by dry_depth_rounds, not dry_sweeps', () => {
+  const d = { ...base, done:true, verifier_certified:true, exhaustive:true };
+  assert.equal(decide({ ...d, dry_sweeps:99 }, hs(1)).action, 'block', 'many dry sweeps is NOT enough when exhaustive');
+  assert.equal(decide({ ...d, dry_depth_rounds:1 }, hs(1)).action, 'block', '1 depth round < default 2');
+  assert.equal(decide({ ...d, dry_depth_rounds:2 }, hs(1)).stopKind, 'done', '2 depth rounds → satisfied');
+});
