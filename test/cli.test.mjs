@@ -121,6 +121,20 @@ test('sweep-next-lens rotates through the set', () => {
   const repo = makeTempRepo(); seed(repo,'ui',{ loop:'ui', lenses_used:['concurrency'] });
   assert.equal(run(repo,'sweep-next-lens','ui'), 'error-handling');
 });
+test('sweep-status reports the gate sweep predicate (single source of truth)', () => {
+  const repo = makeTempRepo();
+  seed(repo,'u',{ loop:'u', min_dry_sweeps:3, dry_sweeps:1 });
+  let p = JSON.parse(run(repo,'sweep-status','u'));
+  assert.equal(p.mode,'until-dry'); assert.equal(p.satisfied,false); assert.equal(p.label,'sweep 1/3 dry');
+  seed(repo,'u2',{ loop:'u2', min_dry_sweeps:3, dry_sweeps:3 });
+  assert.equal(JSON.parse(run(repo,'sweep-status','u2')).satisfied, true);
+  // exhaustive: dry_sweeps must NOT satisfy — only dry_depth_rounds does (mirrors the gate)
+  seed(repo,'ex',{ loop:'ex', exhaustive:true, dry_sweeps:99, dry_depth_rounds:0, min_dry_depth_rounds:2 });
+  p = JSON.parse(run(repo,'sweep-status','ex'));
+  assert.equal(p.mode,'exhaustive'); assert.equal(p.satisfied,false);
+  seed(repo,'ex2',{ loop:'ex2', exhaustive:true, dry_depth_rounds:2, min_dry_depth_rounds:2 });
+  assert.equal(JSON.parse(run(repo,'sweep-status','ex2')).satisfied, true);
+});
 test('latest returns the most-recently-updated loop', () => {
   const repo = makeTempRepo();
   seed(repo,'old',{ loop:'old', updated_at:'2026-01-01T00:00:00Z' });

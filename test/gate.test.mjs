@@ -65,6 +65,22 @@ test('a no-check loop escalates rather than faking done', () => {
   const d = { ...base, done:true, verifier_certified:true, executable_condition_count:0, needs_human:true };
   assert.equal(decide(d, hs(1)).stopKind, 'needs_human');  // can't done → needs-human is the honest exit
 });
+test('certified-but-sweep-unsatisfied gives an informative nudge, not the generic block or a self-disarm', () => {
+  // exhaustive loop, certified + delivered + oracle-ok, but the depth-round bar is unmet
+  const ex = { ...base, done:true, verifier_certified:true, exhaustive:true,
+    dry_sweeps:99, depth:1, dry_depth_rounds:0, min_dry_depth_rounds:2 };
+  const r = decide(ex, hs(1));
+  assert.equal(r.action, 'block');
+  assert.doesNotMatch(r.reason, /Do EXACTLY ONE pass/, 'must NOT fall through to the uninformative generic block');
+  assert.match(r.reason, /depth-round/i, 'names the actual unmet bar (depth rounds)');
+  assert.match(r.reason, /disarm/i, 'tells the maker not to disarm/re-certify');
+  // until-dry variant names the dry-sweep shortfall
+  const ud = { ...base, done:true, verifier_certified:true, min_dry_sweeps:3, dry_sweeps:1 };
+  const r2 = decide(ud, hs(1));
+  assert.equal(r2.action, 'block');
+  assert.match(r2.reason, /1\/3/);
+  assert.doesNotMatch(r2.reason, /Do EXACTLY ONE pass/);
+});
 test('wind-down: near the deadline the block reason says to wrap up', () => {
   const s = { ...base, started_at: 0, time_budget_sec: 1000 };   // deadline 1e6, window 150s
   const r = decide(s, hs(1), 900000);                            // inside wind-down, before deadline
