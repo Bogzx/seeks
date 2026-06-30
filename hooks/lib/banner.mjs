@@ -1,4 +1,5 @@
 import { deadlineMs } from './budget.mjs';
+import { sweepProgress } from './sweep.mjs';   // same predicate the gate releases on — display can't lie about the bar
 // Color is OPT-IN (opts.color, gated by SEEKS_BANNER_COLOR in the hook) — default is plain.
 // The systemMessage channel was confirmed to render plain in v1; a channel that strips ANSI
 // would otherwise show raw escapes, so we never emit codes unless the operator asks for them.
@@ -23,7 +24,7 @@ export function composeBanner(status, decision, stopFires, opts = {}){
   }
   const change = s.last_change ?? '(no change)'; const verdict = s.last_verdict ? ` · verify: ${s.last_verdict}` : '';
   const lens = s.lenses_used?.length ? ` (lens: ${s.lenses_used[s.lenses_used.length - 1]})` : '';
-  const sweep = (s.min_dry_sweeps ?? 0) > 0 ? ` · sweep ${s.dry_sweeps ?? 0}/${s.min_dry_sweeps} dry${lens}` : '';
+  const sweep = sweepProgress(s).label ? ` · ${sweepProgress(s).label}${lens}` : '';   // exhaustive → depth/dry-round; until-dry → sweep X/Y
   const oracle = (s.oracle_changed_count ?? 0) > 0 ? ` · oracle: ${s.oracle_changed_count} changed` : '';
   const dl = deadlineMs(s); let left = '';
   if (dl != null){ const remMs = dl - (opts.now ?? Date.now());

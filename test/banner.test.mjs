@@ -47,6 +47,15 @@ test('banner sweep segment shows the active (last-used) lens', () => {
   const noLens = composeBanner({...s, min_dry_sweeps:2, dry_sweeps:1},{action:'block',stopKind:null},14);
   assert.match(noLens, /sweep 1\/2 dry/); assert.ok(!noLens.includes('lens:'));
 });
+test('exhaustive banner shows depth + dry-round + catalog, not the misleading sweep X/Y', () => {
+  const ex = { ...s, exhaustive:true, depth:2, dry_depth_rounds:1, min_dry_depth_rounds:2,
+    sweep_lenses:['a','b','c','d'], dry_lenses:['a','b'], lenses_used:['a','b'] };
+  const out = composeBanner(ex, { action:'block', stopKind:null }, 14);
+  assert.match(out, /depth 2/);
+  assert.match(out, /dry-round 1\/2/);
+  assert.match(out, /catalog 2\/4/);
+  assert.ok(!/sweep \d+\/\d+ dry/.test(out), 'exhaustive mode must not show the misleading sweep X/Y dry label');
+});
 test('color is opt-in: default stays plain, {color:true} adds ANSI', () => {
   const plain = composeBanner(s,{action:'allow',stopKind:'done'},12);
   assert.ok(!plain.includes('\x1b['), 'default banner must be plain (no ANSI) — verified-plain channel, no regression');
