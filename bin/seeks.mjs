@@ -5,6 +5,7 @@ import { acquire, release } from '../hooks/lib/lock.mjs';
 import { readHookState, resetFires } from '../hooks/lib/hookstate.mjs';
 import { composeBanner } from '../hooks/lib/banner.mjs';
 import { nextLens, DEFAULT_LENSES } from '../hooks/lib/lenses.mjs';
+import { sweepProgress } from '../hooks/lib/sweep.mjs';
 import { oracleDiffHash, oracleGlobsPresent, DEFAULT_ORACLE_GLOBS } from '../hooks/lib/oracle.mjs';
 import { DEFAULT_DENYLIST } from '../hooks/lib/policy.mjs';
 import { deliver } from '../hooks/lib/deliver.mjs';
@@ -21,7 +22,8 @@ const USAGE = `seeks <cmd> <name> [args]
   init <name> <json>            status-get <name>             status-set <name> <patch-json>
   condition-reject <name> <id>  backlog-add <name> <task...>  backlog-count <name>
   log-add <name> <line...>      sweep-tick <name> <found> [lens]   sweep-next-lens <name>
-  progress-tick <name>          reset-fires <name>                 lock-acquire <name>
+  sweep-status <name>           progress-tick <name>               reset-fires <name>
+  lock-acquire <name>
   budget-set <name> <sec>       start-clock <name>
   lock-release <name>           gc <name>                          banner <name> <action> [stopKind]
   latest                        base-record <name>                 base-check <name>
@@ -74,6 +76,7 @@ switch (cmd) {
       last_sweep: found > 0 ? `${found} found` : `dry ${dry}/${s.min_dry_sweeps ?? 0}${lens ? ` (${lens})` : ''}${s.exhaustive ? ` · depth ${depth ?? 1}` : ''}`,
       updated_at: new Date().toISOString() }); break; }
   case 'sweep-next-lens': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; out(nextLens(s.lenses_used ?? [], s.sweep_lenses ?? DEFAULT_LENSES)); break; }
+  case 'sweep-status': out(JSON.stringify(sweepProgress(readStatus(rdOf(a[0])) ?? {}))); break;   // the gate's sweep predicate, for the skill to consult BEFORE certifying
   case 'progress-tick': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; const open = countOpen(rd);
     const prev = s.open_items ?? open; const closedDelta = prev - open; const reseeded = open > prev;
     const dryProgressed = (s.dry_sweeps ?? 0) > (s.dry_sweeps_prev ?? 0);  // a dry sweep is convergence → progress (F7-class)
