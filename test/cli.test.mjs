@@ -51,6 +51,13 @@ test('gc proceeds when the heartbeat is stale/absent (not held)', () => {
   run(repo,'gc','ui');
   assert.ok(!fs.existsSync(rd));
 });
+test('gc --force tears down even when status.json is corrupt (error-handling)', () => {
+  const repo = makeTempRepo(); const rd = seed(repo,'ui',{ loop:'ui' });
+  fs.writeFileSync(path.join(rd,'status.json'), '{ not: valid json');                 // corrupt → readStatus would throw
+  fs.writeFileSync(path.join(rd,'hook-state.json'), JSON.stringify({ last_heartbeat: Date.now() }));  // and "held"
+  run(repo,'gc','ui','--force');   // --force must NOT read status.json; no throw, teardown proceeds
+  assert.ok(!fs.existsSync(rd));
+});
 test('progress-tick: a certify (done) pass counts as progress, not stuck', () => {
   const repo = makeTempRepo(); const rd = seed(repo,'ui',{ loop:'ui', open_items:0, no_progress_count:2, done:true });
   // backlog empty (0 open), nothing closed, not reseeded — but done:true ⇒ progress ⇒ no_progress resets
