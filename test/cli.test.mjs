@@ -31,6 +31,13 @@ test('progress-tick: close=reset, no-op=increment, reseed=reset', () => {
   run(repo,'progress-tick','ui'); s = JSON.parse(run(repo,'status-get','ui'));
   assert.equal(s.open_items,3); assert.equal(s.no_progress_count,0);
 });
+test('backlog-add collapses embedded newlines so one arg stays one item (3.6)', () => {
+  const repo = makeTempRepo(); const rd = seed(repo,'ui',{ loop:'ui', open_items:0 });
+  run(repo,'backlog-add','ui','first line\nsecond line\n- [ ] injected extra');   // embedded newlines + a fake checklist line
+  const body = fs.readFileSync(path.join(rd,'backlog.md'),'utf8');
+  assert.equal((body.match(/^- \[ \] /gm) || []).length, 1);   // exactly one item — continuation lines can't desync the count
+  assert.equal(run(repo,'backlog-count','ui'), '1');
+});
 test('progress-tick: a certify (done) pass counts as progress, not stuck', () => {
   const repo = makeTempRepo(); const rd = seed(repo,'ui',{ loop:'ui', open_items:0, no_progress_count:2, done:true });
   // backlog empty (0 open), nothing closed, not reseeded — but done:true ⇒ progress ⇒ no_progress resets

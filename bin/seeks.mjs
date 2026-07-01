@@ -55,7 +55,7 @@ switch (cmd) {
     const patch = { condition_rejects: cr };
     if (cr[id] >= (s.condition_reject_threshold ?? 3)) patch.needs_human = true;
     writeStatusAtomic(rd, { ...s, ...patch, updated_at: new Date().toISOString() }); break; }
-  case 'backlog-add': fs.appendFileSync(backlog(rdOf(a[0])), `- [ ] ${a.slice(1).join(' ')}\n`); break;
+  case 'backlog-add': fs.appendFileSync(backlog(rdOf(a[0])), `- [ ] ${a.slice(1).join(' ').replace(/\s*[\r\n]+\s*/g,' ').trim()}\n`); break;  // collapse embedded newlines: one item = one line so countOpen (/^- \[ \] /gm) stays in sync
   case 'backlog-count': out(String(countOpen(rdOf(a[0])))); break;
   case 'log-add': fs.appendFileSync(path.join(rdOf(a[0]),'log.md'), `${a.slice(1).join(' ')}\n`); break;  // F15: sanctioned log append (create-on-write)
   case 'sweep-tick': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; const found = parseInt(a[1] ?? '0',10) || 0; const lens = a[2] || null;
