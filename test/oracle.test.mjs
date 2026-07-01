@@ -1,7 +1,7 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import fs from 'node:fs'; import path from 'node:path'; import { execFileSync } from 'node:child_process';
 import { makeTempRepo } from './helpers.mjs';
-import { oracleDiffHash, oracleGlobsPresent, DEFAULT_ORACLE_GLOBS } from '../hooks/lib/oracle.mjs';
+import { oracleDiffHash, oracleGlobsPresent, DEFAULT_ORACLE_GLOBS, porcelainPath } from '../hooks/lib/oracle.mjs';
 const git = (repo, ...a) => execFileSync('git', ['-C', repo, ...a], { encoding:'utf8' });
 function commitAll(repo, msg){ git(repo,'add','-A'); git(repo,'commit','-q','-m',msg); return git(repo,'rev-parse','HEAD').trim(); }
 
@@ -23,6 +23,14 @@ test('detects a changed oracle file; content change moves the hash', () => {
   fs.writeFileSync(path.join(repo,'test','a.test.js'), 'assert(2===2)\n');
   const r2 = oracleDiffHash(repo, base);
   assert.notEqual(r2.hash, r1.hash);
+});
+test('porcelainPath splits rename/copy on the status code, not a literal " -> " in a path (3.9)', () => {
+  assert.equal(porcelainPath('R  old.test.js -> new.test.js'), 'new.test.js');       // rename → new name
+  assert.equal(porcelainPath('C  a.test.js -> b.test.js'), 'b.test.js');             // copy → new name
+  assert.equal(porcelainPath(' M weird -> name.test.js'), 'weird -> name.test.js');  // modified path containing " -> " → preserved (was mis-split)
+  assert.equal(porcelainPath('?? untracked.test.js'), 'untracked.test.js');          // untracked → as-is
+  assert.equal(porcelainPath('R  x.js -> a -> b.js'), 'a -> b.js');                   // rename target containing " -> " kept whole (first arrow only)
+  assert.equal(porcelainPath(''), '');                                                // blank line → empty
 });
 test('globs filter: a non-oracle change is ignored', () => {
   const repo = makeTempRepo();
