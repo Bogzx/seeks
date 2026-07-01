@@ -3,9 +3,13 @@ import { hasSeeksNearby, seeksDir, primaryRoot, matchLoopByCwd } from './lib/res
 function stdin(){ try { return fs.readFileSync(0,'utf8'); } catch { return ''; } }
 const input = (()=>{ try { return JSON.parse(stdin()); } catch { return {}; } })();
 const cwd = input.cwd || process.cwd();
-if (!hasSeeksNearby(cwd)) process.exit(0);
-const sDir = seeksDir(cwd); if (!sDir) process.exit(0);
-const match = matchLoopByCwd(sDir, cwd); if (!match) process.exit(0);
+let match;
+try {                                                       // fail-open: a hook error must never break SessionStart
+  if (!hasSeeksNearby(cwd)) process.exit(0);                // cheap fast-path, no subprocess
+  const sDir = seeksDir(cwd); if (!sDir) process.exit(0);
+  match = matchLoopByCwd(sDir, cwd);                        // armed-loop-only; readStatus may throw on a corrupt status.json
+} catch { process.exit(0); }                                // a bad status.json in ANY run dir must not kill SessionStart for every loop
+if (!match) process.exit(0);
 const rd = match.runDir;
 const read = (f) => { try { return fs.readFileSync(path.join(rd,f),'utf8'); } catch { return ''; } };
 const spec = (()=>{ try { return fs.readFileSync(path.join(primaryRoot(cwd),'.seeks','loops',match.name,'spec.md'),'utf8'); } catch { return ''; } })();
