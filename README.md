@@ -82,13 +82,24 @@ Hook-enforced, not a polite request. Chosen per loop at `/seeks:new`.
 | **L2** *(default)* | edits + commits on a throwaway `seeks/<name>` branch | untouched |
 | **L3** | on done, pushes the branch + opens a PR | untouched — PR only |
 
+## Tiers — which agents, how hard
+
+Seeks runs several agents per loop. A **tier** sets which model each one uses and how deep it digs. Pick once (stored in `~/.claude/seeks.json`), or override per loop at `/seeks:new`; `/seeks:doctor` shows the active one.
+
+| | Light | Balanced *(default)* | All-out |
+|---|---|---|---|
+| **Maker** — writes the fix | sonnet | opus | opus |
+| **Verifier** — independent done-check | sonnet | opus | opus · max effort |
+| **Bug-hunter** — discovery sweeps | haiku | sonnet | opus |
+| **Analyzer / intake** — scopes + interviews | sonnet | sonnet | opus |
+| **Max iterations** — task / open-ended | 30 / 80 | 50 / 200 | 80 / 400 |
+| **Dry sweeps before done** | 1 | 2 | 3 |
+
+A lighter tier costs *thoroughness*, never *safety* — the verifier gate, denylist, and no-merge rules are deterministic at every tier.
+
 ## Running deep / overnight
 
 Tell it how hard to dig at `/seeks:new` — *quick*, *thorough*, or *overnight* (or `/seeks:start --for 8h`). On an open-ended goal ("find every bug") seeks doesn't stop at the first green: it reviews the code through rotating **lenses** (concurrency, boundaries, security, timezones…) and keeps going deeper until it runs dry or the clock runs out. Near the deadline it **winds down** — commits, writes a summary — so you wake to `▸ ⏰ halt: time budget · 9 found · 2 open` and a branch to review, not a half-applied edit.
-
-## Tiers — how hard the agents work
-
-Pick once (stored in `~/.claude/seeks.json`): **Light** (all-sonnet, low caps), **Balanced** *(default — opus on maker + verifier, sonnet elsewhere)*, or **All-out** (opus everywhere, deeper sweeps). A lighter tier costs *thoroughness*, never *safety* — the verifier gate, denylist, and no-merge rules are deterministic at every tier.
 
 ---
 
