@@ -97,8 +97,10 @@ switch (cmd) {
   case 'start-clock': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {};   // stamp start so the budget is per-/seeks:start
     writeStatusAtomic(rd, { ...s, started_at: Date.now(), updated_at: new Date().toISOString() }); out('ok'); break; }
   case 'gc': { const name = a[0]; const force = a.includes('--force'); const root = primaryRoot(); const rd = rdOf(name);
-    const ttl = (readStatus(rd)?.lock_stale_ttl_sec ?? 600) * 1000;                 // don't tear down a live loop: isHeld guards against racing an in-flight commit/writeStatusAtomic
-    if (!force && isHeld(rd, Date.now(), ttl)) { process.stderr.write(`[seeks] refusing to gc "${name}": loop heartbeat is fresh (running). Run /seeks:stop first, or pass --force.`); process.exit(1); }
+    if (!force) {                                                                   // --force skips the liveness check entirely — must work even when status.json is corrupt (the stuck-loop case --force exists for)
+      let ttl = 600000; try { ttl = ((readStatus(rd)?.lock_stale_ttl_sec) ?? 600) * 1000; } catch {}   // a corrupt status.json must not throw and block teardown
+      if (isHeld(rd, Date.now(), ttl)) { process.stderr.write(`[seeks] refusing to gc "${name}": loop heartbeat is fresh (running). Run /seeks:stop first, or pass --force.`); process.exit(1); }
+    }
     try { execFileSync('git',['-C',root,'worktree','remove','--force',`.claude/worktrees/${name}`]); } catch {}
     try { execFileSync('git',['-C',root,'branch','-D',`seeks/${name}`]); } catch {}
     fs.rmSync(rd, { recursive:true, force:true }); break; }
