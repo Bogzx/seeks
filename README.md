@@ -62,7 +62,8 @@ Each pass prints one line: `▸ fix-auth-tests · pass 3 · items 9→7 · edite
 | `/seeks:new <goal>` | plain-English goal → an auto-named loop (interviews, picks a level + budget) |
 | `/seeks:start [name] [--for 8h]` | arm + drive — the most-recent loop if no name |
 | `/seeks:status` · `/seeks:add <task>` · `/seeks:stop` | state · append a backlog task · disarm |
-| `/seeks:harvest [name]` | finished loops + their diffs / PR link |
+| `/seeks:harvest [name]` | finished **and wound-down** loops + their diffs / PR link (offers to deliver a halted branch) |
+| `/seeks:export [name]` | bundle a loop's run-state + session transcript into a tarball (for bug reports) |
 | `/seeks:delete [name]` · `/seeks:doctor` | tear down · health check |
 
 ## Levels — how much rope (hook-enforced, not a polite request)

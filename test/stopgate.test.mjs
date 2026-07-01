@@ -12,6 +12,12 @@ test('blocks for an armed loop containing cwd', () => {
   const out = JSON.parse(run(wt));
   assert.equal(out.decision, 'block');
   assert.match(out.systemMessage, /pass 1 · .* continuing/);
+  // the USER-visible reason is the terse banner, never the verbose model steering
+  assert.match(out.reason, /pass 1 · .* continuing/);
+  assert.doesNotMatch(out.reason, /Do EXACTLY ONE pass/);
+  // the model steering rides the model-only additionalContext channel (not "Stop hook feedback")
+  assert.equal(out.hookSpecificOutput.hookEventName, 'Stop');
+  assert.match(out.hookSpecificOutput.additionalContext, /Do EXACTLY ONE pass/);
   assert.equal(JSON.parse(fs.readFileSync(path.join(rd,'hook-state.json'))).stop_fires, 1);
 });
 test('allows + halts on stuck when no_progress_count ≥ stuck_threshold', () => {
