@@ -42,6 +42,8 @@ test('git policy is not bypassed by global options / git.exe (H1)', () => {
   }
   assert.equal(decidePreTool('Bash', { command: 'git -C /wt commit -m x' }, ctx('L1')).action, 'deny');   // L1 commit via -C
   assert.equal(decidePreTool('Bash', { command: 'git commit -m x && git push' }, c).action, 'deny');        // push in 2nd segment
+  assert.equal(decidePreTool('Bash', { command: 'sleep 1 & git push origin main' }, c).action, 'deny');      // lone & background op (3.2)
+  assert.equal(decidePreTool('Bash', { command: 'true & git merge main' }, c).action, 'deny');               // lone & before merge (3.2)
 });
 test('git policy does not false-positive on substrings (M1)', () => {
   const c = ctx('L2');
