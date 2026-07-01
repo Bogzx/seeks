@@ -1,7 +1,7 @@
 import fs from 'node:fs'; import path from 'node:path'; import { execFileSync } from 'node:child_process';
 import { readStatus, writeStatusAtomic } from '../hooks/lib/status.mjs';
 import { runDir, primaryRoot, seeksDir } from '../hooks/lib/resolve.mjs';
-import { acquire, release } from '../hooks/lib/lock.mjs';
+import { acquire, release, isHeld } from '../hooks/lib/lock.mjs';
 import { readHookState, resetFires } from '../hooks/lib/hookstate.mjs';
 import { composeBanner } from '../hooks/lib/banner.mjs';
 import { nextLens, DEFAULT_LENSES } from '../hooks/lib/lenses.mjs';
@@ -96,10 +96,12 @@ switch (cmd) {
     writeStatusAtomic(rd, { ...s, time_budget_sec: Number(a[1]) || null, updated_at: new Date().toISOString() }); out('ok'); break; }
   case 'start-clock': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {};   // stamp start so the budget is per-/seeks:start
     writeStatusAtomic(rd, { ...s, started_at: Date.now(), updated_at: new Date().toISOString() }); out('ok'); break; }
-  case 'gc': { const name = a[0]; const root = primaryRoot();
+  case 'gc': { const name = a[0]; const force = a.includes('--force'); const root = primaryRoot(); const rd = rdOf(name);
+    const ttl = (readStatus(rd)?.lock_stale_ttl_sec ?? 600) * 1000;                 // don't tear down a live loop: isHeld guards against racing an in-flight commit/writeStatusAtomic
+    if (!force && isHeld(rd, Date.now(), ttl)) { process.stderr.write(`[seeks] refusing to gc "${name}": loop heartbeat is fresh (running). Run /seeks:stop first, or pass --force.`); process.exit(1); }
     try { execFileSync('git',['-C',root,'worktree','remove','--force',`.claude/worktrees/${name}`]); } catch {}
     try { execFileSync('git',['-C',root,'branch','-D',`seeks/${name}`]); } catch {}
-    fs.rmSync(rdOf(name), { recursive:true, force:true }); break; }
+    fs.rmSync(rd, { recursive:true, force:true }); break; }
   case 'banner': { const rd = rdOf(a[0]); const hs = readHookState(rd) ?? { stop_fires:0 };
     out(composeBanner(readStatus(rd) ?? {}, { action:a[1], stopKind:a[2] ?? null }, hs.stop_fires, { color: !!process.env.SEEKS_BANNER_COLOR })); break; }
   case 'latest': { const sd = seeksDir(); let best = null, bestT = '';   // most-recently-updated loop (for no-arg /seeks:start)

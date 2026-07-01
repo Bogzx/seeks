@@ -38,6 +38,19 @@ test('backlog-add collapses embedded newlines so one arg stays one item (3.6)', 
   assert.equal((body.match(/^- \[ \] /gm) || []).length, 1);   // exactly one item — continuation lines can't desync the count
   assert.equal(run(repo,'backlog-count','ui'), '1');
 });
+test('gc refuses to delete a loop with a fresh heartbeat unless --force (concurrency)', () => {
+  const repo = makeTempRepo(); const rd = seed(repo,'ui',{ loop:'ui' });
+  fs.writeFileSync(path.join(rd,'hook-state.json'), JSON.stringify({ stop_fires:1, last_heartbeat: Date.now() }));  // simulate a running loop
+  assert.throws(() => run(repo,'gc','ui'));      // non-zero exit while held
+  assert.ok(fs.existsSync(rd));                  // run dir untouched — no race against the live loop
+  run(repo,'gc','ui','--force');                 // explicit override
+  assert.ok(!fs.existsSync(rd));                 // now removed
+});
+test('gc proceeds when the heartbeat is stale/absent (not held)', () => {
+  const repo = makeTempRepo(); const rd = seed(repo,'ui',{ loop:'ui' });   // no hook-state.json → not held
+  run(repo,'gc','ui');
+  assert.ok(!fs.existsSync(rd));
+});
 test('progress-tick: a certify (done) pass counts as progress, not stuck', () => {
   const repo = makeTempRepo(); const rd = seed(repo,'ui',{ loop:'ui', open_items:0, no_progress_count:2, done:true });
   // backlog empty (0 open), nothing closed, not reseeded — but done:true ⇒ progress ⇒ no_progress resets
