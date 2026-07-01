@@ -59,10 +59,14 @@ console.log(`\n[1] stuck state — certified + delivered, but exhaustive bar unm
 let r;
 for (let i = 0; i < 3; i++) {                                  // the run got re-prompted here pass after pass
   r = fireStopHook(wt);
+  const steer = r.hookSpecificOutput?.additionalContext || '';   // model-facing steering — NOT rendered to the user as "Stop hook feedback"
   ok(r.decision === 'block', `fire ${i + 1}: gate BLOCKS — does not wrongly release a sweep-unsatisfied loop`);
-  ok(/depth-round/i.test(r.reason || ''), `fire ${i + 1}: reason NAMES the unmet bar (depth-round)`);
-  ok(!/Do EXACTLY ONE pass/.test(r.reason || ''), `fire ${i + 1}: NOT the old uninformative generic block`);
-  ok(/do NOT.*disarm/i.test(r.reason || ''), `fire ${i + 1}: explicitly tells the maker not to disarm`);
+  ok(/depth-round/i.test(steer), `fire ${i + 1}: model steering NAMES the unmet bar (depth-round)`);
+  ok(!/Do EXACTLY ONE pass/.test(steer), `fire ${i + 1}: NOT the old uninformative generic block`);
+  ok(/do NOT.*disarm/i.test(steer), `fire ${i + 1}: explicitly tells the maker not to disarm`);
+  // the USER-visible reason is the terse banner, never the verbose steering (the "Stop hook feedback" spam fix)
+  ok(/dry-round 0\/2/.test(r.reason || '') && !/Do EXACTLY ONE pass/.test(r.reason || ''),
+     `fire ${i + 1}: user-facing reason is the terse banner, not the model steering`);
 }
 ok(/continuing/.test(r.systemMessage || ''), 'banner: continuing (not a terminal release)');
 ok(/dry-round 0\/2/.test(r.systemMessage || ''), 'banner: honest exhaustive progress "dry-round 0/2" (not the misleading "sweep 3/3 dry")');
