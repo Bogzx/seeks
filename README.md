@@ -12,7 +12,7 @@
 
 ---
 
-> **Pre-alpha.** The engine is proven — every end state exercised live and on a real codebase — but young. Try it, break it, tell me what broke.
+> Seeks seeks but he's young. Try it, break it, tell me what broke.
 
 ## Why
 
