@@ -59,13 +59,15 @@ switch (cmd) {
   case 'backlog-count': out(String(countOpen(rdOf(a[0])))); break;
   case 'log-add': fs.appendFileSync(path.join(rdOf(a[0]),'log.md'), `${a.slice(1).join(' ')}\n`); break;  // F15: sanctioned log append (create-on-write)
   case 'sweep-tick': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; const found = parseInt(a[1] ?? '0',10) || 0; const lens = a[2] || null;
-    const lenses_used = lens ? [...(s.lenses_used ?? []), lens] : (s.lenses_used ?? []);
+    const catalog = s.sweep_lenses ?? DEFAULT_LENSES;
+    const lensCap = Math.max(catalog.length * 4, 64);                             // bound the LRU history: the tail is all nextLens needs (anything older is already "least-recently-used")
+    const usedAppended = lens ? [...(s.lenses_used ?? []), lens] : (s.lenses_used ?? []);
+    const lenses_used = usedAppended.length > lensCap ? usedAppended.slice(-lensCap) : usedAppended;
     let dry = s.dry_sweeps ?? 0; let dry_lenses = [...(s.dry_lenses ?? [])];
     if (found > 0) { dry = 0; dry_lenses = []; }                                  // found → re-seed, reset the dry streak
     else if (!lens || !dry_lenses.includes(lens)) { dry += 1; if (lens) dry_lenses.push(lens); } // a DISTINCT lens (or legacy no-lens) advances; a repeat does not
     const sweep_found_total = (s.sweep_found_total ?? 0) + (found > 0 ? found : 0);  // cumulative bugs found via sweeps — a finding sweep is progress (even report-only, no reseed)
     let depth = s.depth, dry_depth_rounds = s.dry_depth_rounds;                      // exhaustive mode: a full-catalog dry sweep deepens the review
-    const catalog = s.sweep_lenses ?? DEFAULT_LENSES;
     if (s.exhaustive === true && found === 0 && catalog.every(l => dry_lenses.includes(l))) {
       depth = (s.depth ?? 1) + 1;                       // covered every angle dry → go deeper
       dry_depth_rounds = (s.dry_depth_rounds ?? 0) + 1;

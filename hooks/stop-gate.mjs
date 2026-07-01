@@ -21,8 +21,16 @@ try {                                                       // fail-open: a hook
       }
       const d = decide(status, hs, Date.now());
       const banner = composeBanner(status, d, hs.stop_fires, { color: !!process.env.SEEKS_BANNER_COLOR, now: Date.now() });
+      // Two audiences, two channels. Claude Code surfaces a Stop-block `reason` to the USER
+      // (rendered as "Stop hook feedback"), NOT just to the model — so putting the verbose
+      // per-pass continue-instruction there spams the transcript on every single pass. The
+      // user sees only the one-line `banner`; the model gets the detailed steering via
+      // additionalContext (a system reminder, not shown to the user). The loop skill also
+      // carries the per-pass discipline, so steering survives even if a client drops
+      // additionalContext on a block.
       process.stdout.write(d.action === 'block'
-        ? JSON.stringify({ decision:'block', reason:d.reason, systemMessage:banner })
+        ? JSON.stringify({ decision:'block', reason:banner, systemMessage:banner,
+            hookSpecificOutput: { hookEventName:'Stop', additionalContext: d.reason } })
         : JSON.stringify({ systemMessage: banner }));
     }
   }

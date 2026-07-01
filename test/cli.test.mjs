@@ -112,6 +112,16 @@ test('sweep-tick with lens: distinct lenses advance dry; a repeat does NOT', () 
   assert.deepEqual(s.lenses_used,['concurrency','concurrency','boundary']);
   assert.match(s.last_sweep, /\(boundary\)/);
 });
+test('sweep-tick caps lenses_used history — bounded, LRU tail preserved', () => {
+  const repo = makeTempRepo();
+  const long = Array.from({ length: 64 }, (_, i) => `L${i}`);   // already at the default cap (max(16*4,64)=64)
+  seed(repo,'ui',{ loop:'ui', lenses_used: long });
+  run(repo,'sweep-tick','ui','0','concurrency');
+  const s = JSON.parse(run(repo,'status-get','ui'));
+  assert.equal(s.lenses_used.length, 64, 'history stays bounded, not append-forever');
+  assert.equal(s.lenses_used[s.lenses_used.length-1], 'concurrency', 'newest lens kept at the tail');
+  assert.equal(s.lenses_used[0], 'L1', 'oldest entry (L0) dropped');
+});
 test('sweep-tick: found resets the dry streak + dry_lenses', () => {
   const repo = makeTempRepo(); seed(repo,'ui',{ loop:'ui', dry_sweeps:2, dry_lenses:['concurrency','boundary'], min_dry_sweeps:2 });
   run(repo,'sweep-tick','ui','3','serialization'); const s = JSON.parse(run(repo,'status-get','ui'));
