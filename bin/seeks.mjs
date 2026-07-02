@@ -1,7 +1,7 @@
 import fs from 'node:fs'; import path from 'node:path'; import { execFileSync } from 'node:child_process';
 import { readStatus, writeStatusAtomic } from '../hooks/lib/status.mjs';
 import { runDir, primaryRoot, seeksDir } from '../hooks/lib/resolve.mjs';
-import { acquire, release } from '../hooks/lib/lock.mjs';
+import { acquire, release, isHeld } from '../hooks/lib/lock.mjs';
 import { readHookState, resetFires } from '../hooks/lib/hookstate.mjs';
 import { composeBanner } from '../hooks/lib/banner.mjs';
 import { nextLens, DEFAULT_LENSES } from '../hooks/lib/lenses.mjs';
@@ -55,7 +55,7 @@ switch (cmd) {
     const patch = { condition_rejects: cr };
     if (cr[id] >= (s.condition_reject_threshold ?? 3)) patch.needs_human = true;
     writeStatusAtomic(rd, { ...s, ...patch, updated_at: new Date().toISOString() }); break; }
-  case 'backlog-add': fs.appendFileSync(backlog(rdOf(a[0])), `- [ ] ${a.slice(1).join(' ')}\n`); break;
+  case 'backlog-add': fs.appendFileSync(backlog(rdOf(a[0])), `- [ ] ${a.slice(1).join(' ').replace(/\s*[\r\n]+\s*/g,' ').trim()}\n`); break;  // collapse embedded newlines: one item = one line so countOpen (/^- \[ \] /gm) stays in sync
   case 'backlog-count': out(String(countOpen(rdOf(a[0])))); break;
   case 'log-add': fs.appendFileSync(path.join(rdOf(a[0]),'log.md'), `${a.slice(1).join(' ')}\n`); break;  // F15: sanctioned log append (create-on-write)
   case 'sweep-tick': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; const found = parseInt(a[1] ?? '0',10) || 0; const lens = a[2] || null;
@@ -96,10 +96,14 @@ switch (cmd) {
     writeStatusAtomic(rd, { ...s, time_budget_sec: Number(a[1]) || null, updated_at: new Date().toISOString() }); out('ok'); break; }
   case 'start-clock': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {};   // stamp start so the budget is per-/seeks:start
     writeStatusAtomic(rd, { ...s, started_at: Date.now(), updated_at: new Date().toISOString() }); out('ok'); break; }
-  case 'gc': { const name = a[0]; const root = primaryRoot();
+  case 'gc': { const name = a[0]; const force = a.includes('--force'); const root = primaryRoot(); const rd = rdOf(name);
+    if (!force) {                                                                   // --force skips the liveness check entirely — must work even when status.json is corrupt (the stuck-loop case --force exists for)
+      let ttl = 600000; try { ttl = ((readStatus(rd)?.lock_stale_ttl_sec) ?? 600) * 1000; } catch {}   // a corrupt status.json must not throw and block teardown
+      if (isHeld(rd, Date.now(), ttl)) { process.stderr.write(`[seeks] refusing to gc "${name}": loop heartbeat is fresh (running). Run /seeks:stop first, or pass --force.`); process.exit(1); }
+    }
     try { execFileSync('git',['-C',root,'worktree','remove','--force',`.claude/worktrees/${name}`]); } catch {}
     try { execFileSync('git',['-C',root,'branch','-D',`seeks/${name}`]); } catch {}
-    fs.rmSync(rdOf(name), { recursive:true, force:true }); break; }
+    fs.rmSync(rd, { recursive:true, force:true }); break; }
   case 'banner': { const rd = rdOf(a[0]); const hs = readHookState(rd) ?? { stop_fires:0 };
     out(composeBanner(readStatus(rd) ?? {}, { action:a[1], stopKind:a[2] ?? null }, hs.stop_fires, { color: !!process.env.SEEKS_BANNER_COLOR })); break; }
   case 'latest': { const sd = seeksDir(); let best = null, bestT = '';   // most-recently-updated loop (for no-arg /seeks:start)

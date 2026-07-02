@@ -23,7 +23,7 @@ function splitSegments(cmd){
     if (c === '"' || c === "'"){ q = c; cur += c; continue; }
     if (c === ';' || c === '\n'){ segs.push(cur); cur = ''; continue; }
     if ((c === '&' || c === '|') && cmd[i+1] === c){ segs.push(cur); cur = ''; i++; continue; }
-    if (c === '|'){ segs.push(cur); cur = ''; continue; }
+    if (c === '|' || c === '&'){ segs.push(cur); cur = ''; continue; }   // lone | (pipe) or & (background) both end a segment
     cur += c; }
   segs.push(cur); return segs;
 }
