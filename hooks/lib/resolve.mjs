@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'; import path from 'node:path'; import fs from 'node:fs';
 import { isInside } from './paths.mjs'; import { readStatus } from './status.mjs';
+import { readHookState } from './hookstate.mjs';
 export function primaryRoot(cwd = process.cwd()){
   try {
     const common = execFileSync('git', ['-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding:'utf8' }).trim();
@@ -17,6 +18,7 @@ export function matchLoopByCwd(sDir, cwd, platform = process.platform){
   for (const name of names){
     const rd = path.join(sDir,'run',name); const status = readStatus(rd);
     if (!status || status.armed !== true || !status.worktree_path) continue;
+    if (readHookState(rd)?.released) continue;   // gate-released terminal → dormant (no gating, policing, or re-inject) until /seeks:start reset-fires
     if (isInside(cwd, status.worktree_path, platform)) return { name, runDir: rd, status };
   }
   return null;

@@ -19,7 +19,8 @@ function sweepNudge(s){   // certified but the sweep bar is unmet — say EXACTL
 export function decide(status, hookState, now = Date.now()){
   const s = status || {}; const hs = hookState || {};
   if (s.armed !== true) return { action:'allow', reason:null, stopKind:null };
-  const certifiedCore = s.done === true && s.verifier_certified === true && hasRealCheck(s) && oracleSatisfied(s);
+  const certified = s.done === true && s.verifier_certified === true && hasRealCheck(s);   // the verifier's verdict is in…
+  const certifiedCore = certified && oracleSatisfied(s);                                    // …and the oracle ack is current
   if (certifiedCore && sweepSatisfied(s) && deliverySatisfied(s)) return { action:'allow', reason:null, stopKind:'done' };
   if (s.needs_human === true) return { action:'allow', reason:null, stopKind:'needs_human' };
   if (pastDeadline(s, now)) return { action:'allow', reason:null, stopKind:'time-budget' };
@@ -28,8 +29,11 @@ export function decide(status, hookState, now = Date.now()){
   // Certified but a terminal gate is still unmet — name EXACTLY which one. A generic "do one pass"
   // here is what drove the wrongful self-disarm: the maker, seeing nothing left to do and no reason,
   // thrashed and then disarmed a loop the gate was still (correctly) holding.
-  if (certifiedCore && !sweepSatisfied(s))
+  if (certified && !sweepSatisfied(s))                              // sweeps are the outer bar: converge them before re-verifying
     return { action:'block', stopKind:null, reason: sweepNudge(s) };
+  if (certified && !oracleSatisfied(s))                             // an oracle (test) file changed after the ack → re-verify, don't thrash
+    return { action:'block', stopKind:null,
+      reason: `[seeks] Loop ${s.loop} is certified but the oracle ack is STALE — an oracle (test) file changed after the verifier's last "seeks oracle-ack". Re-dispatch the verifier: it must re-run the done-conditions, account for the new oracle diff in verify/oracle.md, then run "seeks oracle-ack ${s.loop}" and re-certify. Do NOT disarm.` };
   if (certifiedCore && sweepSatisfied(s) && !deliverySatisfied(s))   // certified + swept but L3-undelivered → nudge to deliver (M2)
     return { action:'block', stopKind:null,
       reason: `[seeks] Loop ${s.loop} is certified but not delivered. This is an L3 loop — run "seeks deliver ${s.loop}" (pushes seeks/${s.loop} and opens a PR; degrades to push/local if gh/remote are absent), then end your turn.` };
