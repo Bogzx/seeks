@@ -81,6 +81,23 @@ test('certified-but-sweep-unsatisfied gives an informative nudge, not the generi
   assert.match(r2.reason, /1\/3/);
   assert.doesNotMatch(r2.reason, /Do EXACTLY ONE pass/);
 });
+test('certified-but-stale-oracle names the oracle bar with a re-verify instruction', () => {
+  const d = { ...base, done:true, verifier_certified:true, oracle_live_hash:'abc', oracle_ack_hash:'OLD' };
+  const r = decide(d, hs(1));
+  assert.equal(r.action, 'block');
+  assert.doesNotMatch(r.reason, /Do EXACTLY ONE pass/, 'must NOT fall through to the uninformative generic block');
+  assert.match(r.reason, /oracle/i, 'names the actual unmet bar (stale oracle ack)');
+  assert.match(r.reason, /verifier/i, 'says how to clear it (re-dispatch the verifier, re-ack)');
+  assert.match(r.reason, /disarm/i, 'tells the maker not to disarm');
+});
+test('stale oracle + unmet sweep bar names the sweep bar (sweeps come before re-verify)', () => {
+  const d = { ...base, done:true, verifier_certified:true, oracle_live_hash:'abc', oracle_ack_hash:'OLD',
+    min_dry_sweeps:3, dry_sweeps:1 };
+  const r = decide(d, hs(1));
+  assert.equal(r.action, 'block');
+  assert.match(r.reason, /1\/3/, 'the sweep shortfall is the actionable bar while sweeps are unmet');
+  assert.doesNotMatch(r.reason, /Do EXACTLY ONE pass/);
+});
 test('wind-down: near the deadline the block reason says to wrap up', () => {
   const s = { ...base, started_at: 0, time_budget_sec: 1000 };   // deadline 1e6, window 150s
   const r = decide(s, hs(1), 900000);                            // inside wind-down, before deadline

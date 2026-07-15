@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { hasSeeksNearby, seeksDir, matchLoopByCwd } from './lib/resolve.mjs';
-import { bumpFire } from './lib/hookstate.mjs';
+import { bumpFire, latchRelease } from './lib/hookstate.mjs';
 import { decide } from './lib/gate.mjs';
 import { composeBanner } from './lib/banner.mjs';
 import { oracleDiffHash } from './lib/oracle.mjs';
@@ -20,6 +20,8 @@ try {                                                       // fail-open: a hook
         } catch {}
       }
       const d = decide(status, hs, Date.now());
+      if (d.action === 'allow' && d.stopKind)                  // terminal → latch the release: this banner prints ONCE, then
+        latchRelease(match.runDir, d.stopKind, Date.now());     // matchLoopByCwd skips the loop until /seeks:start reset-fires
       const banner = composeBanner(status, d, hs.stop_fires, { color: !!process.env.SEEKS_BANNER_COLOR, now: Date.now() });
       // Two audiences, two channels. Claude Code surfaces a Stop-block `reason` to the USER
       // (rendered as "Stop hook feedback"), NOT just to the model — so putting the verbose
