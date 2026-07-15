@@ -10,4 +10,8 @@ export function bumpFire(rd, sessionId, now){
 export function seedHeartbeat(rd, now){ const c = readHookState(rd) ?? { stop_fires:0, session_id:null }; write(rd, { ...c, last_heartbeat:now }); }
 export function isFresh(rd, now, ttlMs){ const h = readHookState(rd); return !!h && h.last_heartbeat!=null && (now - h.last_heartbeat) < ttlMs; }
 export function staleHeartbeat(rd){ const c = readHookState(rd); if (c) write(rd, { ...c, last_heartbeat:0 }); }
-export function resetFires(rd){ const c = readHookState(rd) ?? {}; write(rd, { ...c, stop_fires:0 }); }
+// Terminal latch: the gate writes it on a terminal allow; while set, matchLoopByCwd skips the loop, so
+// EVERY seeks hook (stop-gate, pre-tool, session-restore) goes silent for it. Hook-owned on purpose —
+// there is no CLI to set it (only reset-fires clears), so a maker can't self-release past the gates.
+export function latchRelease(rd, stopKind, now){ const c = readHookState(rd) ?? { stop_fires:0 }; write(rd, { ...c, released: stopKind, released_at: now }); }
+export function resetFires(rd){ const { released, released_at, ...c } = readHookState(rd) ?? {}; write(rd, { ...c, stop_fires:0 }); }
