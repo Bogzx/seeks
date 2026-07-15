@@ -91,7 +91,7 @@ switch (cmd) {
   case 'lock-acquire': { const rd = rdOf(a[0]); const ttl = (readStatus(rd)?.lock_stale_ttl_sec ?? 600) * 1000;
     if (!acquire(rd, Date.now(), ttl).ok) { process.stderr.write('loop already running'); process.exit(1); } break; }
   case 'lock-release': release(rdOf(a[0])); break;
-  case 'reset-fires': resetFires(rdOf(a[0])); break;   // zero stop_fires → max_iters is a per-/seeks:start budget (F3)
+  case 'reset-fires': resetFires(rdOf(a[0])); break;   // zero stop_fires (max_iters is a per-/seeks:start budget, F3) + clear the release latch (re-activates a gate-released loop)
   case 'budget-set': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {};   // wall-clock budget (sec); enforced by gate + pre-tool
     writeStatusAtomic(rd, { ...s, time_budget_sec: Number(a[1]) || null, updated_at: new Date().toISOString() }); out('ok'); break; }
   case 'start-clock': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {};   // stamp start so the budget is per-/seeks:start
