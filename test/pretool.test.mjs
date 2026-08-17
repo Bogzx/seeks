@@ -26,6 +26,12 @@ test('denies a direct status.json write', () => {
   const out = JSON.parse(run(wt, { tool_name:'Write', tool_input:{ file_path: path.join(rd,'status.json') } }));
   assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
 });
+test('denies a Bash disarm of status.json, end to end through the real hook', () => {
+  const { wt, rd } = armLoop('L2');
+  const out = JSON.parse(run(wt, { tool_name:'Bash', tool_input:{ command: `echo '{"armed":false}' > ${path.join(rd,'status.json').split('\\').join('/')}` } }));
+  assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(out.hookSpecificOutput.permissionDecisionReason, /hook-owned/);
+});
 test('fail-open (exit 0, no throw) on a corrupt status.json (M3)', () => {
   const repo = makeTempRepo(); const wt = path.join(repo,'.claude','worktrees','ui'); fs.mkdirSync(wt,{recursive:true});
   const rd = path.join(repo,'.seeks','run','ui'); fs.mkdirSync(rd,{recursive:true});

@@ -19,6 +19,32 @@ test('direct status.json / hook-state.json writes are denied at every level', ()
     assert.equal(decidePreTool('Write', edit(`${RUN}/hook-state.json`), ctx(lvl)).action, 'deny');
   }
 });
+test('Bash cannot reach status.json / hook-state.json either (the budget must be unreachable)', () => {
+  const c = ctx('L2');
+  for (const cmd of [
+    `echo '{"armed":false}' > ${RUN}/status.json`,          // disarm: releases iteration cap, clock, verifier gate and denylist at once
+    `echo x >> ${RUN}/hook-state.json`,
+    `echo x >${RUN}/status.json`,                            // glued redirection operator
+    `cat ${RUN}/status.json`,                                // reads go through the CLI too — one path to state
+    `printf '{}' | tee ${RUN}/status.json`,                  // redirection is not the only way to write
+    `cp /tmp/fake.json ${RUN}/hook-state.json`,
+    `sed -i s/true/false/ ${RUN}/status.json`,
+    `npm test && echo '{}' > ${RUN}/status.json`,            // second segment of a chain
+    `echo x > ".seeks/run/ui/status.json"`,                  // relative + quoted
+  ]) assert.equal(decidePreTool('Bash', { command: cmd }, c).action, 'deny', `should deny: ${cmd}`);
+});
+test('the loop-state rule does not swallow the sanctioned CLI or neighbouring files', () => {
+  const c = ctx('L2');
+  for (const cmd of [
+    `node /plugin/bin/seeks.mjs status-set ui '{"open_items":3}'`,   // the sanctioned write path
+    `node /plugin/bin/seeks.mjs status-get ui`,
+    `ls ${RUN}`,
+    `cat ${RUN}/summary.md`,
+    `cat ${RUN}/backlog.md`,
+    `cat package.json`,
+    `cat src/status.json`,                                            // a status.json that isn't loop state
+  ]) assert.equal(decidePreTool('Bash', { command: cmd }, c).action, 'allow', `should allow: ${cmd}`);
+});
 test('denylist edits denied', () =>
   assert.equal(decidePreTool('Edit', edit(`${WT}/.env`), ctx('L2')).action, 'deny'));
 test('edits outside the worktree denied', () => {
