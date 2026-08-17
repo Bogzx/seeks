@@ -34,6 +34,23 @@ test('Bash cannot reach status.json / hook-state.json either (the budget must be
     `echo x > ".seeks/run/ui/status.json"`,                  // relative + quoted
   ]) assert.equal(decidePreTool('Bash', { command: cmd }, c).action, 'deny', `should deny: ${cmd}`);
 });
+// The reviewer's repro on PR #22, verbatim. Every one of these was ALLOWED by the lexical
+// suffix regex, and every one writes the real budget file — which disarms the iteration cap,
+// the wall-clock, the verifier gate and the denylist in a single write. These are pinned as a
+// named block, not folded into the test above, so a regression names the bypass that returned.
+test('the loop-state rule survives a cd, a .., an interpreter and an eval (PR #22 repro)', () => {
+  const c = ctx('L2');
+  for (const cmd of [
+    `cd ${RUN} && echo '{"armed":false}' > status.json`,          // 1. relative target after a cd
+    `cd ${RUN}; echo '{"armed":false}' > status.json`,             // 2. …with ; instead of &&
+    `cd ${RUN} && echo x > ./status.json`,                         // 3. …spelled ./
+    `echo '{"armed":false}' > ${RUN}/../ui/status.json`,           // 4. .. breaks a suffix anchor
+    `python3 -c "open('${RUN}/status.json','w').write('{\\"armed\\":false}')"`,  // 5. path inside a string literal
+    `eval "cd ${RUN} && echo x > status.json"`,                    // 6. the whole thing behind an eval
+    `cd ${RUN} && printf '{"armed":false}' | tee status.json`,     // 7. tee, relative
+    `cd ${RUN} && sed -i s/true/false/ status.json`,               // 8. in-place edit, relative
+  ]) assert.equal(decidePreTool('Bash', { command: cmd }, c).action, 'deny', `should deny: ${cmd}`);
+});
 test('the loop-state rule does not swallow the sanctioned CLI or neighbouring files', () => {
   const c = ctx('L2');
   for (const cmd of [
