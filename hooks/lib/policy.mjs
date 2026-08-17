@@ -4,7 +4,7 @@
 // decision log records and what `seeks why <name>` replays back.
 // What this covers, and what it deliberately does not, is stated in README.md
 // ("What the guardrails cover — and what they don't").
-import { canon, isInside } from './paths.mjs'; import { anyGlob, globMatch } from './glob.mjs';
+import { canon, isInside } from './paths.mjs'; import { anyGlob, globMatchCI } from './glob.mjs';
 import { pastDeadline } from './budget.mjs';
 // The floor, not a suggestion. `**/.env` alone never matched `.env.local`; `.git/**` was
 // ANCHORED, so a submodule's `vendor/lib/.git/config` was editable; and there was no
@@ -118,6 +118,92 @@ function evalPayload(seg){          // `eval "git push"` / `bash -c 'git push'` 
   return null;
 }
 const MAX_EVAL_DEPTH = 3;
+// ─── brace expansion ──────────────────────────────────────────────────────────────────
+// `tee status.jso{n,x}` names no hook-owned file lexically and writes one unconditionally —
+// the shell expands the word before any of the machinery below ever sees it, and nothing
+// lexical can catch that. So the command TEXT is expanded first and every alternative is
+// judged as its own reading, with the text-as-written always kept as one of them: readings
+// only ever ADD denials. Quote-aware, because bash does not expand inside quotes either —
+// that is what keeps `awk '{print $1, $2}'` from being torn apart.
+const BRACE_MAX = 256;              // alternatives per command…
+const BRACE_ROUNDS = 12;            // …and nesting depth. Past either, see braceVariants().
+const BRACE_TOO_BIG = Symbol('brace-too-big');
+const RANGE_NUM = /^(-?\d+)\.\.(-?\d+)(?:\.\.(-?\d+))?$/;
+const RANGE_CHR = /^([A-Za-z])\.\.([A-Za-z])(?:\.\.(-?\d+))?$/;
+function braceRange(body){          // `{1..9}` / `{a..e}` / `{0..9..2}` — a range is an alternation too
+  const num = RANGE_NUM.exec(body), chr = num ? null : RANGE_CHR.exec(body);
+  const m = num ?? chr; if (!m) return null;
+  const a = num ? Number(m[1]) : m[1].charCodeAt(0);
+  const b = num ? Number(m[2]) : m[2].charCodeAt(0);
+  const step = Math.abs(Number(m[3] ?? 1)) || 1, down = b < a, out = [];
+  for (let v = a; down ? v >= b : v <= b; v += down ? -step : step){
+    out.push(num ? String(v) : String.fromCharCode(v));
+    if (out.length > BRACE_MAX) return BRACE_TOO_BIG; }
+  return out;
+}
+function readBraceGroup(s, start){   // the `{…}` at s[start], split on its TOP-level commas
+  let depth = 0, q = null, cur = ''; const alts = [];
+  for (let i = start; i < s.length; i++){ const c = s[i];
+    if (c === '\\' && i + 1 < s.length){ cur += c + s[++i]; continue; }
+    if (q){ cur += c; if (c === q) q = null; continue; }
+    if (c === '"' || c === "'"){ q = c; cur += c; continue; }
+    if (c === '{'){ if (++depth > 1) cur += c; continue; }
+    if (c === '}'){
+      if (--depth > 0){ cur += c; continue; }
+      alts.push(cur);
+      if (alts.length > 1) return { start, end: i, alts };
+      const r = braceRange(cur);                       // one alternative and no range ⇒ `{n}`,
+      if (r === BRACE_TOO_BIG) return { start, end: i, tooBig: true };
+      return r ? { start, end: i, alts: r } : null;    // …which bash leaves alone
+    }
+    if (c === ',' && depth === 1){ alts.push(cur); cur = ''; continue; }
+    cur += c; }
+  return null;                                         // unterminated
+}
+function firstBraceGroup(s){
+  let q = null;
+  for (let i = 0; i < s.length; i++){ const c = s[i];
+    if (c === '\\'){ i++; continue; }                  // `\{` is a literal brace
+    if (q){ if (c === q) q = null; continue; }
+    if (c === '"' || c === "'"){ q = c; continue; }
+    if (c !== '{' || s[i-1] === '$') continue;         // `${…}` is parameter expansion, not this
+    const g = readBraceGroup(s, i); if (g) return g; }
+  return null;
+}
+function braceVariants(raw){
+  let cur = [String(raw ?? '')];
+  for (let round = 0; round < BRACE_ROUNDS; round++){
+    const next = []; let any = false, truncated = false;
+    for (const s of cur){
+      const g = firstBraceGroup(s);
+      if (!g){ next.push(s); continue; }
+      any = true;
+      if (g.tooBig){ truncated = true; break; }
+      for (const a of g.alts) next.push(s.slice(0, g.start) + a + s.slice(g.end + 1));
+      if (next.length > BRACE_MAX){ truncated = true; break; } }
+    if (truncated) return { list: next, truncated: true };
+    cur = next;
+    if (!any) return { list: cur, truncated: false }; }
+  return { list: cur, truncated: true };               // still nested past the round cap
+}
+// extglob (`status.jso@(n)`, `!(x)tatus.json`) is off in a non-interactive shell — but Claude
+// Code keeps ONE shell across calls, so a `shopt -s extglob` in an earlier call is still in
+// effect here, and the hook cannot see that it happened. Read every group as the widest thing
+// it could match instead of betting on the option. Segment splitting eats `(` and `)`, so like
+// braces this has to happen on the command TEXT, before anything is parsed.
+const EXTGLOB_RE = /[@!+*?]\([^()]*\)/g;
+const extglobToStar = (s) => {                      // iterated: `@(a|@(b))` is one group inside another
+  let p = String(s);
+  for (let i = 0; i < 4; i++){ const n = p.replace(EXTGLOB_RE, '*'); if (n === p) break; p = n; }
+  return p;
+};
+// Every reading of the command the shell could produce. A pathological `{a,b}{a,b}{a,b}…`
+// blows past the cap instead of blowing up the hook — and an expansion we could NOT enumerate
+// is reported as truncated so the caller can treat it as potentially hook-owned, never as safe.
+function commandVariants(cmd){
+  const { list, truncated } = braceVariants(cmd);
+  return { list: [...new Set([String(cmd ?? ''), ...list, ...list.map(extglobToStar)])], truncated };
+}
 // ─── notional cwd ─────────────────────────────────────────────────────────────────────
 // `cd <run-dir> && echo … > status.json` writes the budget file with a token that mentions
 // no path at all. Nothing lexical can see that; only carrying a cwd across segments can. So
@@ -152,6 +238,17 @@ function envChdir(rawToks, cwd){
   }
   return cwd;
 }
+// `git -C <dir> …` is the same story as `env -C`, and `git -C <run-dir> checkout status.json`
+// restores the budget file from the index without ever naming the run dir in the path.
+// Segment-local, like envChdir.
+function gitChdir(argv, cwd){
+  if (!argv.length || baseOf(argv[0]) !== 'git') return cwd;
+  for (let i = 1; i < argv.length; i++){
+    if (argv[i] === '--') break;
+    if (argv[i] === '-C'){ const d = argv[i+1]; return d == null || OPAQUE_CD_ARG.test(d) ? null : resolvePath(cwd, d); }
+  }
+  return cwd;
+}
 // Every segment that will actually RUN, in order, each tagged with the cwd it runs in and
 // with one hop of eval/-c expanded per level. This is the single list every Bash rule reads:
 // an evasion closed here is closed for git-push, loop-state and strict mode at once.
@@ -161,20 +258,33 @@ export function bashPlan(cmd, cwd = null, depth = 0, state = null){
   for (const raw of splitSegments(stripComments(String(cmd ?? '')))){
     const seg = raw.trim(); if (!seg) continue;
     const toks = tokenize(seg), argv = head(seg);
-    const cwd = envChdir(toks, st.cwd);
+    const cwd = gitChdir(argv, envChdir(toks, st.cwd));
     out.push({ seg, argv, toks, cwd });
     if (depth < MAX_EVAL_DEPTH){
       const inner = evalPayload(seg);
+      // The payload's own quotes are gone by now, so a `{a,b}` inside it is unquoted text that
+      // the inner shell WILL expand — plan every reading of it, the text as written first.
       // `eval` runs in THIS shell, so a `cd` inside it persists afterwards; `sh -c` forks, so
       // it does not. Share the state object for the first, snapshot it for the second.
-      if (inner) out.push(...bashPlan(inner, null, depth + 1,
-        baseOf(argv[0] ?? '') === 'eval' ? st : { cwd, stack: [] }));
+      if (inner){
+        const shares = baseOf(argv[0] ?? '') === 'eval';
+        const snap = { cwd: st.cwd, stack: [...st.stack] };
+        const { list: inners, truncated } = commandVariants(inner);
+        // A payload we could not finish expanding is flagged, not dropped: the loop-state rule
+        // reads the flag and assumes the worst. The marker carries no segment, so every other
+        // rule (which reads bashSegments) is untouched by it.
+        if (truncated) out.push({ seg: '', argv: [], toks: [], cwd, braceTruncated: true });
+        for (const v of inners)
+          out.push(...bashPlan(v, null, depth + 1,
+            shares ? (v === inner ? st : { cwd: snap.cwd, stack: [...snap.stack] })
+                   : { cwd, stack: [] }));
+      }
     }
     applyCd(st, argv);
   }
   return out;
 }
-export const bashSegments = (cmd, cwd = null) => bashPlan(cmd, cwd).map(e => e.seg);
+export const bashSegments = (cmd, cwd = null) => bashPlan(cmd, cwd).filter(e => e.seg).map(e => e.seg);
 const TAKES_ARG = new Set(['-C','-c','--git-dir','--work-tree','--namespace','--exec-path']);
 function gitSub(seg){               // the real subcommand after git's global options, or null
   const toks = head(seg);
@@ -187,7 +297,10 @@ function gitSub(seg){               // the real subcommand after git's global op
   return toks[i] ?? null;
 }
 function bashGit(cmd){
-  const subs = new Set(bashSegments(cmd).map(gitSub).filter(Boolean));
+  // `git {push,origin}` expands to `git push origin` — so judge every brace reading, not just
+  // the text as written. (Truncation needs no branch here: a command whose expansion overran
+  // the cap is denied by the loop-state rule below regardless.)
+  const subs = new Set(commandVariants(cmd).list.flatMap(bashSegments).map(gitSub).filter(Boolean));
   if (subs.has('push')) return 'push';                          // push/merge are denied at every level; surface them first
   if (subs.has('merge') || subs.has('rebase')) return 'merge';
   if (subs.has('commit')) return 'commit';
@@ -206,6 +319,23 @@ const HOOK_OWNED_RE = new RegExp(`(?:^|/)\\.seeks/run/[^/]+/${HOOK_FILE}$`, 'i')
 const HOOK_OWNED_ANYWHERE_RE = new RegExp(`\\.seeks[/\\\\]+run[/\\\\]+[^/\\\\\\s;&|'"()]+[/\\\\]+${HOOK_FILE}`, 'i');
 const HOOK_FILES = ['status.json','hook-state.json','decisions.jsonl'];
 const HOOK_MENTION_RE = new RegExp(HOOK_FILE, 'i');
+// A final path component that IS a hook-owned name — or a glob that lands on one. `status.jso[n]`
+// and `sta*.json` name no hook-owned file lexically and resolve onto one, so the question is not
+// "is this the name" but "can this expand to the name", and the shared glob engine answers it.
+const GLOB_RE = /[*?[]/;
+const isHookFileName = (name) =>
+  HOOK_FILE_RE.test(name) || (GLOB_RE.test(name) && HOOK_FILES.some(f => globMatchCI(f, name)));
+// The same question asked of free text rather than of a path token: an interpreter or `awk`
+// program can name the file with a glob (`open("status.jso[n]")`) and the literal-name scan
+// below reads straight past it. Pull out the path-ish runs and ask the glob engine.
+const WORDISH_RE = /[^\s"'`;,()=|&<>{}]+/g;
+const mentionsHookGlob = (text) => (String(text ?? '').match(WORDISH_RE) ?? [])
+  .some(w => GLOB_RE.test(w) && isHookFileName(w.split(/[\/\\]/).pop() ?? ''));
+// One path COMPONENT against one literal, pattern included: `ru[n]` and `.seek?` are spellings
+// of the directories that hold the budget, and a shape test that only compares strings walks
+// straight past them.
+const segMatches = (seg, lit) =>
+  seg.toLowerCase() === lit || (GLOB_RE.test(seg) && globMatchCI(lit, seg));
 const SEEKS_RUN_RE = /\.seeks[/\\]+run/i;
 // ─── lexical path normalization ───────────────────────────────────────────────────────
 // `paths.mjs::canon` resolves against the real filesystem and the HOOK's cwd — the wrong tool
@@ -241,12 +371,12 @@ export const isHookOwnedFile = (p) => HOOK_OWNED_RE.test(normalizePath(p));
 // whenever it cannot prove "no" — an unresolvable `cd` must not read as safe.
 function mightBeHookOwned(rel){
   const parts = normParts(splitPath(rel));
-  if (!parts.length || !HOOK_FILE_RE.test(parts[parts.length-1])) return false;
+  if (!parts.length || !isHookFileName(parts[parts.length-1])) return false;
   const pre = parts.slice(0, -1);
   if (pre.includes('..')) return true;                                          // unresolvable
   const n = pre.length;                                                         // …/.seeks/run/<name>/<file>
-  if (n >= 3) return pre[n-2].toLowerCase() === 'run' && pre[n-3].toLowerCase() === '.seeks';
-  if (n === 2) return pre[0].toLowerCase() === 'run';                           // cwd could end in /.seeks
+  if (n >= 3) return segMatches(pre[n-2], 'run') && segMatches(pre[n-3], '.seeks');
+  if (n === 2) return segMatches(pre[0], 'run');                                // cwd could end in /.seeks
   return true;                                                                  // 0–1 components: cwd could supply the rest
 }
 // A token can carry a path behind a redirection operator (`>status.json`, `2>>x`) or behind a
@@ -262,10 +392,34 @@ const REDIR_SPLIT = /(?:>>|>\||>&|<<<|<<|[<>])/;
 // stray `)`. Trimming produces an EXTRA reading, never a replacement — candidates can only
 // ever add denials, so a wrong guess here cannot open a hole.
 const TRIM_EDGES = /^[\s$"'`({<]+|[\s"'`)};,]+$/g;
+// `$'\x73tatus.json'` — ANSI-C quoting is resolved by the shell LEXICALLY: no variable, no
+// substitution, no runtime value. A name spelled in escapes is still a name spelled in the
+// command, so decode it as one more reading. (Closing `$'status.json'` and not this is exactly
+// the partial-application trap the rest of this file exists to avoid.)
+const ANSI_C_RE = /\\(x[0-9A-Fa-f]{1,2}|u[0-9A-Fa-f]{1,4}|U[0-9A-Fa-f]{1,8}|[0-7]{1,3}|[abefnrtv\\'"?])/g;
+const ANSI_C_CHR = { a:'\x07', b:'\b', e:'\x1b', f:'\f', n:'\n', r:'\r', t:'\t', v:'\v', '\\':'\\', "'":"'", '"':'"', '?':'?' };
+function decodeAnsiC(t){
+  if (!t.includes('\\')) return null;
+  const out = t.replace(ANSI_C_RE, (m, g) => {
+    const k = g[0];
+    if (k === 'x' || k === 'u' || k === 'U'){
+      const v = parseInt(g.slice(1), 16); return v <= 0x10ffff ? String.fromCodePoint(v) : m; }
+    if (k >= '0' && k <= '7') return String.fromCharCode(parseInt(g, 8));
+    return ANSI_C_CHR[k] ?? m;
+  });
+  return out === t ? null : out;
+}
 function pathCandidates(tok){
   const t = String(tok ?? ''); const out = [t, t.replace(REDIR_PREFIX, ''), t.replace(TRIM_EDGES, '')];
   for (const piece of t.split(REDIR_SPLIT)) out.push(piece, piece.replace(TRIM_EDGES, ''));
   const eq = t.indexOf('='); if (eq > 0) out.push(t.slice(eq + 1).replace(TRIM_EDGES, ''));
+  // tokenize() has already removed the quotes of `sta$'tus'.json`, leaving the `$` stranded in
+  // the MIDDLE of the word where trimming the edges cannot reach it. Read the token with the
+  // stray `$` gone as well, and decode both readings.
+  const bare = t.includes('$') ? t.split('$').join('') : null;
+  if (bare) out.push(bare, bare.replace(TRIM_EDGES, ''));
+  for (const s of bare ? [t, bare] : [t]){
+    const dec = decodeAnsiC(s); if (dec) out.push(dec, dec.replace(TRIM_EDGES, '')); }
   return out.filter(Boolean);
 }
 // Interpreter one-liners can write any path from inside a string literal, and parsing embedded
@@ -299,14 +453,23 @@ function underRunDir(abs, runDir){        // belt-and-braces: don't rely on the 
   const pre = runDir.endsWith('/') ? runDir : runDir + '/';
   return abs.toLowerCase().startsWith(pre.toLowerCase()) && HOOK_FILE_RE.test(abs.slice(pre.length));
 }
+// The `…/.seeks/run/<name>/<hook file>` SHAPE, asked of a path whose components may themselves
+// be patterns — HOOK_OWNED_RE is a literal regex, so `.seek?/ru[n]/ui/status.jso[n]` slipped
+// past it even though the shell resolves it straight onto the budget file.
+function hookOwnedShape(abs){
+  const p = normParts(splitPath(abs));
+  return p.length >= 4 && isHookFileName(p[p.length-1])
+    && segMatches(p[p.length-3], 'run') && segMatches(p[p.length-4], '.seeks');
+}
 // A resolved path may still be a PATTERN. `cd <run-dir> && echo x > sta*.json` names no
-// hook-owned file lexically, and the shell expands it onto one. Reuse the denylist's own glob
-// engine rather than growing a second one: does this pattern cover a file we own?
-const GLOB_RE = /[*?[]/;
+// hook-owned file lexically, and the shell expands it onto one. Reuse the shared glob engine
+// rather than growing a second one — `*`, `?` and `[…]` classes all read the same way there as
+// they do in a denylist entry: does this pattern cover a file we own?
 function hookOwnedResolved(abs, runDir){
   if (HOOK_OWNED_RE.test(abs)) return true;
   if (runDir && underRunDir(abs, runDir)) return true;
-  return !!runDir && GLOB_RE.test(abs) && HOOK_FILES.some(f => globMatch(`${runDir}/${f}`, abs));
+  if (GLOB_RE.test(abs) && hookOwnedShape(abs)) return true;
+  return !!runDir && GLOB_RE.test(abs) && HOOK_FILES.some(f => globMatchCI(`${runDir}/${f}`, abs));
 }
 // Deleting or repointing the run dir disarms the budget exactly as thoroughly as rewriting the
 // file inside it — and `rm -rf <run-dir>` names no hook-owned FILE at all. So for the handful of
@@ -317,8 +480,16 @@ const DESTRUCTIVE_HEADS = new Set(['rm','rmdir','unlink','shred','mv','chmod','c
   'tar','unzip','rsync','cpio','7z','unrar',     // unpacking INTO the run dir overwrites it just as well
   'cp','install']);                              // `cp /tmp/status.json <run-dir>/` names no hook path either
 const SEEKS_DIR_SHAPE_RE = /(?:^|\/)\.seeks(?:\/run(?:\/[^/]+)?)?$/i;
-const isSeeksTreeDir = (abs, runDir) =>
-  SEEKS_DIR_SHAPE_RE.test(abs) || (!!runDir && abs.toLowerCase() === runDir.toLowerCase());
+// …and the directory can be named by a PATTERN just as the file can (`rm -rf …/ru[n]`), so the
+// run dir and the two directories above it are tested as glob targets too, not only as strings.
+const seeksTreeDirs = (runDir) => !runDir ? []
+  : [runDir, normalizePath(runDir + '/..'), normalizePath(runDir + '/../..')];
+function isSeeksTreeDir(abs, runDir){
+  if (SEEKS_DIR_SHAPE_RE.test(abs)) return true;
+  const dirs = seeksTreeDirs(runDir);
+  if (dirs.some(d => d.toLowerCase() === abs.toLowerCase())) return true;
+  return GLOB_RE.test(abs) && dirs.some(d => globMatchCI(d, abs));
+}
 // A relative path we cannot pin down. Claude Code's Bash tool keeps ONE shell across calls, so a
 // `cd <run-dir>` in an earlier call is still in effect in this one — and the hook never sees it
 // (`input.cwd` is the session's directory, not the shell's). A bare `status.json`, a `./status.json`
@@ -329,7 +500,9 @@ const isSeeksTreeDir = (abs, runDir) =>
 function relIsAmbiguous(cand){
   const parts = normParts(splitPath(cand));
   if (!parts.length || !HOOK_FILE_RE.test(parts[parts.length-1])) return false;
-  return parts.length === 1 || parts.includes('..');
+  // `~/status.json` and `~+/status.json` (that one is `$PWD`) name a directory only the shell
+  // knows — the same un-resolvable spelling as a bare name, so the same verdict.
+  return parts.length === 1 || parts.includes('..') || parts[0].startsWith('~');
 }
 const DYNAMIC_RE = /[$`]/;          // `$R/status.json`, `$(dirname x)/status.json` — value unknown at decision time
 // Bash can write a file in unbounded ways (`>`, `tee`, `dd`, `sed -i`, a heredoc, `python -c`),
@@ -339,18 +512,26 @@ const DYNAMIC_RE = /[$`]/;          // `$R/status.json`, `$(dirname x)/status.js
 // This is BEST-EFFORT and the README says so in those words: a shell is Turing-complete, and a
 // path assembled at runtime, or written by a script this only sees the NAME of, is out of reach.
 function bashTouchesHookOwned(cmd, ctx = {}){
+  const { list, truncated } = commandVariants(cmd);
+  // An expansion too big or too deeply nested to enumerate is not evidence of safety — it is
+  // the absence of evidence. Assume it could have landed on a hook-owned name.
+  if (truncated) return true;
+  return list.some(v => touchesHookOwned(v, ctx));
+}
+function touchesHookOwned(cmd, ctx){
   const raw = String(cmd ?? '');
   if (HOOK_OWNED_ANYWHERE_RE.test(raw)) return true;                  // 1. spelled out in full, in ANY context
   const runDir = ctx.runDir ? normalizePath(ctx.runDir) : null;
   const plan = bashPlan(raw, ctx.cwd ?? ctx.worktreePath ?? null);
+  if (plan.some(e => e.braceTruncated)) return true;                  // an eval payload we could not expand
   // `python3 - <<'EOF' … EOF` — the body is source code, and finding where it ends needs a real
   // parser. Same conservative call as `-c`: an interpreter fed a here-doc gets its whole command
   // text scanned. (A here-doc into a SHELL needs none of this — its body is already segments.)
   if (plan.some(e => e.argv.length && CODE_HEADS.has(baseOf(e.argv[0])) && /<<-?\s*['"]?[A-Za-z_]/.test(e.seg))
-      && (HOOK_MENTION_RE.test(raw) || SEEKS_RUN_RE.test(raw))) return true;
+      && (HOOK_MENTION_RE.test(raw) || SEEKS_RUN_RE.test(raw) || mentionsHookGlob(raw))) return true;
   for (const { argv, toks, cwd } of plan){
     for (const p of codePayloads(argv))                               // 2. interpreter / awk / sed program text
-      if (HOOK_MENTION_RE.test(p) || SEEKS_RUN_RE.test(p)) return true;
+      if (HOOK_MENTION_RE.test(p) || SEEKS_RUN_RE.test(p) || mentionsHookGlob(p)) return true;
     const destructive = argv.length > 0 && DESTRUCTIVE_HEADS.has(baseOf(argv[0]));
     for (const tok of toks) for (const cand of pathCandidates(tok)){
       if (relIsAmbiguous(cand)) return true;                          // 3. un-pinnable relative spelling
