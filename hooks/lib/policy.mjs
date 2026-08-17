@@ -7,6 +7,7 @@ export const DEFAULT_DENYLIST = ['**/.env','**/secrets/**','.git/**'];
 const EDIT_TOOLS = new Set(['Edit','Write','MultiEdit','NotebookEdit']);
 const allow = { action:'allow', reason:null };
 const deny = (reason) => ({ action:'deny', reason });
+const LOOP_STATE_DENY = '[seeks] status.json/hook-state.json are hook-owned — never read or write them directly (that one file holds the iteration cap, the clock and the verifier gate). Drive state via bin/seeks.mjs: "seeks status-get <name>" / "seeks status-set <name> <patch-json>".';
 const targetPath = (tool, ti) => !ti ? null : (tool === 'NotebookEdit' ? (ti.notebook_path ?? null) : (ti.file_path ?? null));
 function relTo(absChild, parent){
   if (!parent) return null; const c = canon(absChild); let p = canon(parent);
@@ -35,6 +36,21 @@ function tokenize(seg){
     if (/\s/.test(c)){ if (has){ toks.push(cur); cur = ''; has = false; } continue; }
     cur += c; has = true; }
   if (has) toks.push(cur); return toks;
+}
+// Loop-state files are hook-owned: the iteration cap, wall-clock, verifier gate and denylist
+// all read from them, so one write disarms every budget at once. ONE predicate, consumed by both
+// the edit-tool branch and the Bash branch, so the two can never drift apart.
+const LOOP_STATE_RE = /(?:^|\/)\.seeks\/run\/[^/]+\/(?:status|hook-state)\.json$/i;
+export const isLoopStateFile = (p) => LOOP_STATE_RE.test(String(p ?? '').split('\\').join('/'));
+// Bash can write a file in unbounded ways (`>`, `tee`, `dd`, `sed -i`, a heredoc, `python -c`),
+// so classifying the VERB is a losing game. The enforceable line is the mention of the path
+// itself — nothing legitimate needs it, because reads and writes both have a CLI
+// (`seeks status-get` / `status-set`). Path obfuscation via $(…)/$VARS stays out of scope,
+// same documented boundary as the git rules above.
+const REDIR_PREFIX = /^[0-9]*(?:>>|>\||>|<<<|<<|<)/;
+function bashTouchesLoopState(cmd){
+  return splitSegments(String(cmd || '')).some(seg =>
+    tokenize(seg).some(t => isLoopStateFile(t.replace(REDIR_PREFIX, ''))));
 }
 const GIT_RE = /(^|[\/\\])git(\.exe)?$/i;
 const TAKES_ARG = new Set(['-C','-c','--git-dir','--work-tree','--namespace','--exec-path']);
@@ -68,6 +84,7 @@ export function decidePreTool(toolName, toolInput, ctx = {}){
     const op = bashGit(cmd);
     if (op === 'push' || op === 'merge') return deny('[seeks] delivery is automated via "seeks deliver" (L3 only); the agent never pushes/merges/rebases directly.');
     if (op === 'commit' && level === 'L1') return deny('[seeks] L1 is report-only: no commits. Write findings under .seeks/run/<name>/.');
+    if (bashTouchesLoopState(cmd)) return deny(LOOP_STATE_DENY);
     if (wrapUp && op !== 'commit' && !/seeks\.mjs/.test(String(cmd || '')))   // past the deadline: only wrap-up bash (seeks CLI, git commit)
       return deny('[seeks] time budget reached — only wrap-up allowed (seeks CLI, git commit, write summary.md), then end your turn.');
     return allow;
@@ -75,8 +92,7 @@ export function decidePreTool(toolName, toolInput, ctx = {}){
   if (!EDIT_TOOLS.has(toolName)) return allow;
   const p = targetPath(toolName, toolInput); if (!p) return allow;
   const abs = canon(p);
-  if (/\/\.seeks\/run\/[^/]+\/(status|hook-state)\.json$/.test(abs))
-    return deny('[seeks] never hand-write status.json/hook-state.json — drive state via bin/seeks.mjs.');
+  if (isLoopStateFile(abs)) return deny(LOOP_STATE_DENY);
   if (ctx.runDir && isInside(abs, ctx.runDir)) return allow;            // run-dir allow-zone
   const rel = relTo(abs, ctx.worktreePath);
   if (rel != null && anyGlob(rel, ctx.denylist ?? [])) return deny(`[seeks] '${rel}' is on the denylist — refusing to edit.`);
