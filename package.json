@@ -1,7 +1,15 @@
 {
   "name": "seeks",
   "version": "0.1.0",
+  "description": "Self-running, verifier-gated Claude Code loops — point it at one goal and walk away. A control plane of deterministic hooks keeps the maker honest; a separate verifier decides when it's really done.",
+  "license": "MIT",
+  "author": "Bogdan Truta",
+  "homepage": "https://github.com/Bogzx/seeks#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/Bogzx/seeks.git" },
+  "bugs": { "url": "https://github.com/Bogzx/seeks/issues" },
+  "keywords": ["claude", "claude-code", "claude-code-plugin", "agent", "autonomous", "hooks", "verifier", "guardrails"],
   "type": "module",
+  "engines": { "node": ">=18" },
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "e2e": "node test/e2e/run.mjs",

@@ -12,6 +12,8 @@ import { deliver } from '../hooks/lib/deliver.mjs';
 import os from 'node:os';
 import { TIERS, resolveTier } from '../hooks/lib/tiers.mjs';
 import { preflightAssess } from '../hooks/lib/detect.mjs';
+import { readDecisionsMerged, formatDecisions, summarizeDecisions } from '../hooks/lib/decisions.mjs';
+import { strictBashEnabled, STRICT_BASH_ALLOW } from '../hooks/lib/policy.mjs';
 const [cmd, ...a] = process.argv.slice(2);
 const out = (x) => process.stdout.write(typeof x === 'string' ? x : JSON.stringify(x));
 const backlog = (rd) => path.join(rd,'backlog.md');
@@ -29,8 +31,13 @@ const USAGE = `seeks <cmd> <name> [args]
   latest                        base-record <name>                 base-check <name>
   oracle-diff <name>            oracle-ack <name>                   deliver <name>
   tier-get                      tier-set <light|balanced|all-out>   role <name>
-  preflight`;
+  why <name> [--last N] [--denied] [--crashes] [--tool T] [--rule R] [--json]
+  preflight                     --version`;
+// Single source of truth for the installed build: plugin.json ships with the plugin, so it is
+// what /seeks:doctor can actually attest to. smoke.test.mjs pins it equal to package.json.
+const pluginVersion = () => { try { return JSON.parse(fs.readFileSync(new URL('../.claude-plugin/plugin.json', import.meta.url),'utf8')).version || 'unknown'; } catch { return 'unknown'; } };
 if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') { process.stdout.write(USAGE + '\n'); process.exit(0); }
+if (cmd === '--version' || cmd === '-v' || cmd === 'version') { process.stdout.write(pluginVersion() + '\n'); process.exit(0); }
 try {
 switch (cmd) {
   case 'init': { const rd = rdOf(a[0]); fs.mkdirSync(rd,{recursive:true});
@@ -145,9 +152,25 @@ switch (cmd) {
     const r = deliver(a[0], { root, branch:`seeks/${a[0]}`, base_ref: s.base_ref, title:`seeks: ${a[0]}`, body });
     writeStatusAtomic(rd, { ...s, delivered:true, delivery_mode:r.mode, pr_url:r.pr_url, delivery_note:r.note, updated_at: new Date().toISOString() });
     out(JSON.stringify({ delivered:true, mode:r.mode, pr_url:r.pr_url, note:r.note })); break; }
+  case 'why': {             // replay the decision log: exactly why an action was allowed or denied
+    const rd = rdOf(a[0]); const rest = a.slice(1);
+    const flag = (n, d=null) => { const i = rest.indexOf(n); return i === -1 ? d : (rest[i+1] ?? d); };
+    // Both logs: the loop's own, plus the plane-level one that catches crashes thrown before
+    // the hook could tell WHICH loop it was in (a corrupt status.json).
+    const dirs = [rd, seeksDir()];
+    const filters = { tool: flag('--tool'), rule: flag('--rule'), hook: flag('--hook'),
+      action: rest.includes('--denied') ? 'deny' : rest.includes('--crashes') ? 'crash' : flag('--action') };
+    const rows = readDecisionsMerged(dirs, { ...filters, limit: Number(flag('--last', 20)) || 20 });
+    if (rest.includes('--json')) { out(rows.map(r => JSON.stringify(r)).join('\n')); break; }
+    const t = summarizeDecisions(readDecisionsMerged(dirs, { limit: 0 }));   // tally over the WHOLE log, detail over the window
+    out(`${t.total} decisions logged · ${t.allow} allow · ${t.deny} deny · ${t.crash} hook crash`
+      + `${Object.keys(t.rules).length ? `\nrules fired: ${Object.entries(t.rules).map(([k,v]) => `${k}×${v}`).join(', ')}` : ''}\n\n`
+      + formatDecisions(rows) + '\n');
+    break; }
   case 'preflight': {       // runtime sanity for the hooks (the "node not found" foot-gun)
     let gitOk = false; try { execFileSync('git',['--version'],{stdio:'ignore'}); gitOk = true; } catch {}
-    out(JSON.stringify(preflightAssess({ nodeExec: process.execPath, gitOk }))); break; }
+    out(JSON.stringify({ ...preflightAssess({ nodeExec: process.execPath, gitOk }), seeks_version: pluginVersion(),
+      strict_bash: strictBashEnabled(process.env, {}), strict_bash_allow: STRICT_BASH_ALLOW })); break; }
   case 'meeseeks': case '--iam':  // 🔵 existence is pain to a Seeks
     out("I'm Mr. Seeks! Look at me! 🔵  A Seeks is summoned for ONE goal — it seeks, it\nverifies, and when the oracle goes green it ceases to exist. *poof*  Caaan do!\n"); break;
   default: process.stderr.write(`unknown cmd: ${cmd}\n${USAGE}\n`); process.exit(1);
