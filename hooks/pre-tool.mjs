@@ -15,6 +15,9 @@ try {                                                       // that far, else th
       const s = match.status;
       const d = decidePreTool(input.tool_name, input.tool_input || {},
         { level: s.level, worktreePath: s.worktree_path, runDir: match.runDir, denylist: s.denylist ?? [],
+          cwd,                                                  // the shell's ACTUAL cwd — what a relative
+                                                                // Bash path resolves against (`> status.json`)
+
           startedAt: s.started_at, timeBudgetSec: s.time_budget_sec, now: Date.now(),
           strictBash: strictBashEnabled(process.env, s), strictBashAllow: s.strict_bash_allow ?? [] });
       appendDecision(match.runDir, { hook:'pre-tool', tool: input.tool_name ?? null, action: d.action,
