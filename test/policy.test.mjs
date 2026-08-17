@@ -20,7 +20,7 @@ test('direct status.json / hook-state.json writes are denied at every level', ()
     assert.equal(decidePreTool('Write', edit(`${RUN}/hook-state.json`), ctx(lvl)).action, 'deny');
   }
 });
-test('Bash cannot reach status.json / hook-state.json either (the budget must be unreachable)', () => {
+test('Bash does not reach status.json / hook-state.json by any plainly-spelled route', () => {
   const c = ctx('L2');
   for (const cmd of [
     `echo '{"armed":false}' > ${RUN}/status.json`,          // disarm: releases iteration cap, clock, verifier gate and denylist at once
