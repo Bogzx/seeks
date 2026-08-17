@@ -121,6 +121,104 @@ test('the loop-state rule survives the second round of evasions too', () => {
     `rsync -a /tmp/fake/ ${RUN}/`,
   ]) assert.equal(decidePreTool('Bash', { command: cmd }, c).action, 'deny', `should deny: ${cmd}`);
 });
+// Round three: `*` and `?` were closed, `[…]` and `{…}` were not — the same partial application
+// that let the first two rounds through. A bracket class was WORSE than un-handled: GLOB_RE
+// counted `[` as a glob so the pattern branch fired, and then globToRegExp escaped the brackets
+// into literals so the resulting regex could never match anything. Brace expansion was not
+// handled at all, and `{n,x}` writes the file unconditionally — the target need not even exist.
+test('a glob that RESOLVES onto loop state is judged by what it resolves to, not how it is spelled', () => {
+  const c = ctx('L2');
+  for (const cmd of [
+    // the four verbatim repros
+    `cd ${RUN} && echo bad | tee status.jso{n,x}`,   // brace: writes status.json unconditionally
+    `cd ${RUN} && echo bad | tee status.jso[n]`,     // bracket class
+    `cd ${RUN} && sed -i s/a/b/ status.jso[n]`,
+    `cd ${RUN} && cp /dev/null status.jso[n]`,
+    // …and the rest of the two syntaxes
+    `cd ${RUN} && echo x > status.jso[a-z]`,         // range
+    `cd ${RUN} && echo x > status.jso[!x]`,          // negation, both spellings
+    `cd ${RUN} && echo x > status.jso[^x]`,
+    `cd ${RUN} && echo x > status.js[[:alpha:]]n`,   // POSIX class
+    `cd ${RUN} && echo x > status.jso[[=n=]]`,       // equivalence class
+    `cd ${RUN} && echo x > [s]tatus.json`,
+    `cd ${RUN} && echo x > status[.]json`,
+    `cd ${RUN} && echo x > sta[t]us.jso[n]`,
+    `cd ${RUN} && echo x > "status.jso"[n]`,         // quote splice + class
+    `cd ${RUN} && rm hook-state.jso[n]`,
+    `cd ${RUN} && echo x > statu{s,t}.json`,         // brace in the middle of the name
+    `cd ${RUN} && echo x > sta{tus,}.json`,          // …with an EMPTY alternative
+    `cd ${RUN} && echo x > st{a{t,},}us.json`,       // nested
+    `cd ${RUN} && echo x > status.jso{m..o}`,        // a range is an alternation too
+    `cd ${RUN} && rm decisions.jsonl{,.bak}`,
+    `cd ${RUN} && echo x > status.jso{[n],[x]}`,     // one syntax inside the other
+    `echo x > ${RUN}/status.jso{n,x}`,               // absolute, no cd
+    `echo x > ${RUN}/status.jso[n]`,
+    `echo x > ${RUN.replace('/ui','')}/{ui,other}/status.json`,   // the brace is in the DIRECTORY
+    `cd ${RUN.replace('/ui','')}/{ui,other} && echo x > status.json`,
+    // the run dir's own name spelled as a pattern — the shape test was literal
+    `echo x > ${RUN.replace('/run/','/ru[n]/')}/status.json`,
+    `echo x > .seek[s]/run/ui/status.json`,
+    `echo x > .seeks/ru[n]/ui/status.json`,
+    `echo x > .seeks/run/*/status.json`,
+    `cd ${RUN} && cp x ../../*/*/*.json`,
+    `rm -rf ${RUN.replace('/run/ui','')}/ru[n]`,     // …including as a destructive TARGET
+    `rm -rf ${RUN.replace('/ui','')}/{ui,tmp}`,
+    `tar -xf /tmp/evil.tar -C ${RUN.replace('/ui','/u[i]')}`,
+    // expansion happens inside an eval payload too — its quotes are gone by then
+    `eval "cd ${RUN} && echo x > status.jso{n,x}"`,
+    `eval "eval \\"cd ${RUN} && echo x > status.jso{n,x}\\""`,
+    `bash -c "cd ${RUN} && tee status.jso[n]"`,
+    `sh <<< 'cd ${RUN} && echo x > sta{tus,}.json'`,
+    // an interpreter or awk program can name it with a pattern as easily as with a name
+    `awk 'BEGIN{print "{}" > "status.jso[n]"}'`,
+    `node -e "require('fs').writeFileSync('status.jso[n]','{}')"`,
+    `python3 - <<'EOF'\nopen('status.jso[n]','w')\nEOF`,
+    `sed --in-place=bak status.jso[n]`,
+    // unknown cwd + a pattern: "could this resolve onto loop state" must still answer yes
+    `cd $(echo ${RUN}) && echo x > sta*.json`,
+    `cd $(echo ${RUN}) && tee status.jso[n]`,
+    `cd $HOME && sed -i s/a/b/ status.jso[n]`,
+    `cd $(x) && echo x > .seek[s]/run/ui/status.json`,
+    `D=${RUN}; echo x > "$D"/status.jso[n]`,
+    // extglob: off in a non-interactive shell, but ONE shell is reused across Bash calls and a
+    // `shopt -s extglob` in an earlier one is still in effect — read the group as the widest
+    // thing it could match rather than betting on the option
+    `cd ${RUN} && echo x > status.jso@(n)`,
+    `cd ${RUN} && echo x > status.jso+(n)`,
+    `cd ${RUN} && echo x > !(a)tatus.json`,
+    `cd ${RUN} && echo x > status.jso@(@(n))`,
+    `cd ${RUN} && echo x > status.jso@({n,x})`,
+    // `git -C <dir>` moves the shell as surely as `cd` does
+    `git -C ${RUN} checkout status.jso[n]`,
+    `git -C ${RUN} checkout sta{tus,}.json`,
+    // ANSI-C quoting is resolved LEXICALLY — a name in escapes is still a name in the command
+    `cd ${RUN} && echo x > $'\\x73tatus.json'`,
+    `cd ${RUN} && echo x > $'\\163tatus.json'`,
+    `cd ${RUN} && echo x > $'\\u0073tatus.json'`,
+    `cd ${RUN} && echo x > sta$'\\x74'us.json`,
+    // `~` names a directory only the shell knows — same un-resolvable spelling as a bare name
+    `echo x > ~/status.json`,
+    `echo x > ~+/status.json`,
+    `echo x > ~/.seeks/run/ui/status.json`,
+    // …and a brace makes `git push` disappear the same way it made the path disappear
+    `git {push,origin} main`,
+    `git {merge,main}`,
+  ]) assert.equal(decidePreTool('Bash', { command: cmd }, c).action, 'deny', `should deny: ${cmd}`);
+});
+// The cap is a decision, not an accident: enumerating `{a,b}{a,b}…` is exponential, so past the
+// cap the expansion is reported as un-enumerated and un-enumerated is NOT the same as safe.
+// The cost is a false positive on a command with 256+ genuinely harmless alternatives; the
+// alternative is a hook that hangs, which is worse, and the sanctioned CLI is always available.
+test('an expansion too big to enumerate is treated as potentially hook-owned, not as safe', () => {
+  const c = ctx('L2');
+  const bomb = 'x{a,b}'.repeat(40);
+  assert.equal(decidePreTool('Bash', { command: `cd ${RUN} && touch ${bomb}` }, c).action, 'deny');
+  assert.equal(decidePreTool('Bash', { command: `eval "touch ${bomb}"` }, c).action, 'deny');
+  assert.equal(decidePreTool('Bash', { command: 'touch f{1..99999}' }, c).action, 'deny');
+  const t0 = Date.now();
+  decidePreTool('Bash', { command: `cd ${RUN} && touch ${bomb}` }, c);
+  assert.ok(Date.now() - t0 < 2000, 'the cap must bound the work, not just the answer');
+});
 // The honest other half. These are NOT aspirational — they are pinned as ALLOW because that is
 // what the code does, and the README says so in the same words. A shell is Turing-complete: a
 // path assembled at runtime, or written by a program this only sees the NAME of, cannot be
@@ -165,6 +263,25 @@ test('hardening loop-state did not cost the loop its ordinary Bash', () => {
     'node -e "console.log(process.version)"', 'find . -name "*.js" -exec grep -l todo {} \\;',
     `echo done > ${RUN}/summary.md`, `cd ${RUN} && ls`, 'echo "(done)"', 'echo $HOME/log.txt',
     'npm test 2>&1|tail -5', 'echo hi>build/out.txt', 'cat<src/app.js',   // glued redirects, benign targets
+  ]) assert.equal(decidePreTool('Bash', { command: cmd }, c).action, 'allow', `should allow: ${cmd}`);
+});
+// Candidate generation may only ever ADD denials. Teaching it `[…]` and `{…}` is worth nothing
+// if it costs the loop the globs and brace lists it actually uses — a regression here is worse
+// than the bypass it closes, so the ordinary spellings are pinned as ALLOW right next to it.
+test('understanding globs did not make every glob suspicious', () => {
+  const c = ctx('L2');
+  for (const cmd of [
+    'ls *.json', 'echo hi > build/out.txt', 'cat src/status.json',
+    'cat config/app/status.json', 'cat data/hook-state.json',   // a real dir in front resolves, and resolves elsewhere
+    'ls src/[a-z]*.js', 'ls **/[Dd]ockerfile', 'rm -f build/*.json',
+    'mkdir -p src/{a,b}/{x,y}', 'cp app.js{,.bak}', 'rm -rf {dist,build,.cache}',
+    'touch file{1..100}.txt', 'npm run {build,test}', 'mv log{,.old}',
+    "awk '{print $1, $2}' log.txt",                             // a comma in braces INSIDE quotes is not an alternation
+    'echo "{status,config}.json is the shape"',                 // …and bash does not expand it either
+    'git commit -m "chore: document {a,b} expansion"',
+    'find . -name "*.js" -exec grep -l todo {} \\;',
+    'echo $HOME/log.txt', 'grep -rn "\\[TODO\\]" src',
+    `cat ${RUN}/summary.md`, `cd ${RUN} && ls`,
   ]) assert.equal(decidePreTool('Bash', { command: cmd }, c).action, 'allow', `should allow: ${cmd}`);
 });
 test('denylist edits denied', () =>
