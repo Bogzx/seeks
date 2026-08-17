@@ -20,13 +20,27 @@ Tell Claude Code "fix the failing tests" and it fixes a few, then stops to check
 
 ## How it works
 
-seeks runs the loop inside a **control plane** — fast Node hooks between Claude and your repo that can veto any action, in code the model can't read or edit:
+seeks runs the loop inside a **control plane** — fast Node hooks between Claude and your repo that veto actions in deterministic code, before they run:
 
 - **A separate verifier** re-runs your done-conditions in a clean context. The maker never signs off on its own work.
-- **Guardrails on every action** — can't touch `.env` / `.git`, can't leave the worktree, can't relax a test to fake green, can't push or merge.
-- **A budget it can't reach** — iteration *and* wall-clock caps live in hook-owned files. "Loop forever" is impossible by construction.
+- **Guardrails on every *edit*** — the file-editing tools can't write `.env` / secrets / `.git`, can't leave the worktree, and can't hand-write loop state. No level can `git push`, `merge` or `rebase`.
+- **Test edits aren't blocked — they're *accounted for*.** Touching an oracle file doesn't fake a green: the verifier has to acknowledge the exact changed set, and the gate re-blocks `done` if it drifts afterwards.
+- **A budget it can't edit** — iteration *and* wall-clock caps live in hook-owned files the edit tools refuse to write. "Loop forever" is impossible by construction.
 
 Give it a goal with a check you can run (`npm test` exits 0, `mypy` clean) and it finishes for real, hands back to you, or stops at a limit — never wandering off, never faking done. **`main` moves only when you click merge.**
+
+### What the guardrails cover — and what they don't
+
+Worth being precise about, because this boundary is what decides whether you can actually walk away.
+
+| | Status |
+|---|---|
+| **Edits** (`Edit`/`Write`/`MultiEdit`/`NotebookEdit`) | **Deterministically enforced.** Denylist, worktree confinement, loop-state files, L1 report-only, and the wrap-up window are all checked in code before the tool runs. |
+| **`git push` / `merge` / `rebase` via Bash** | **Enforced**, including the obvious evasions (`git -C … push`, `git.exe push`, a push in the second segment of a `&&` chain). |
+| **Everything else Bash can do** | **Not currently policed.** The denylist, worktree confinement and loop-state protection apply to the *edit tools only* — a `cat > ../../.env` or `echo … > status.json` goes through. A shell is Turing-complete, so no pattern-matching policy can ever police it in full. |
+| **Reads** | **Not policed at all.** The model can read `.env`, your secrets, and seeks' own hook code. seeks constrains what gets *changed*, not what gets *seen*. |
+
+If the goal or the codebase is untrusted, **run the loop in a container** — that is the only way the Bash gap is closed by construction rather than by policy.
 
 ## How a loop ends
 
