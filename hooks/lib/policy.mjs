@@ -252,7 +252,11 @@ function mightBeHookOwned(rel){
 // A token can carry a path behind a redirection operator (`>status.json`, `2>>x`) or behind a
 // `key=` (`dd of=status.json`, `--output=…`, and a bare `F=…/status.json` assignment that a
 // later `$F` dereferences). Test every reading.
+// A redirection operator needs no whitespace on EITHER side: `echo x>status.json` is one token,
+// and stripping only a leading operator missed it entirely. Split on the operator wherever it
+// falls and read every piece.
 const REDIR_PREFIX = /^(?:[0-9]+|&)?(?:>>|>\||>&|>|<<<|<<|<)/;
+const REDIR_SPLIT = /(?:>>|>\||>&|<<<|<<|[<>])/;
 // Shell punctuation that tokenize() leaves glued to a path: `$'status.json'` collapses to
 // `$status.json`, a backtick command substitution leaves `` status.json` ``, `$(…)` leaves a
 // stray `)`. Trimming produces an EXTRA reading, never a replacement — candidates can only
@@ -260,6 +264,7 @@ const REDIR_PREFIX = /^(?:[0-9]+|&)?(?:>>|>\||>&|>|<<<|<<|<)/;
 const TRIM_EDGES = /^[\s$"'`({<]+|[\s"'`)};,]+$/g;
 function pathCandidates(tok){
   const t = String(tok ?? ''); const out = [t, t.replace(REDIR_PREFIX, ''), t.replace(TRIM_EDGES, '')];
+  for (const piece of t.split(REDIR_SPLIT)) out.push(piece, piece.replace(TRIM_EDGES, ''));
   const eq = t.indexOf('='); if (eq > 0) out.push(t.slice(eq + 1).replace(TRIM_EDGES, ''));
   return out.filter(Boolean);
 }

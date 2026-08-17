@@ -99,6 +99,13 @@ test('the loop-state rule survives the second round of evasions too', () => {
     `cd ${RUN} && : > status.json`,
     `cd ${RUN} && exec 3> status.json`,
     `cd ${RUN} && echo x >| status.json`,                   // noclobber override
+    // a redirection operator needs whitespace on NEITHER side — this escaped a prefix-strip
+    `cd ${RUN};echo x>status.json`,
+    `cd ${RUN};echo x>>status.json`,
+    `cd ${RUN};cat<status.json`,
+    `cd ${RUN}&&echo x>status.json`,
+    `cd ${RUN} && echo x 1>status.json`,
+    `cd\t${RUN}\t&&\techo\tx\t>\tstatus.json`,              // tab separated
     `cd ${RUN} && cat <<EOF >status.json\n{}\nEOF`,
     `cp /tmp/status.json ${RUN}/`,                          // the DESTINATION is the dir, the name comes along
     `git -C ${RUN} checkout status.json`,
@@ -157,6 +164,7 @@ test('hardening loop-state did not cost the loop its ordinary Bash', () => {
     'rsync -a src/ /tmp/backup/', 'bash -c "npm test"', 'python3 -c "import sys; print(sys.version)"',
     'node -e "console.log(process.version)"', 'find . -name "*.js" -exec grep -l todo {} \\;',
     `echo done > ${RUN}/summary.md`, `cd ${RUN} && ls`, 'echo "(done)"', 'echo $HOME/log.txt',
+    'npm test 2>&1|tail -5', 'echo hi>build/out.txt', 'cat<src/app.js',   // glued redirects, benign targets
   ]) assert.equal(decidePreTool('Bash', { command: cmd }, c).action, 'allow', `should allow: ${cmd}`);
 });
 test('denylist edits denied', () =>
