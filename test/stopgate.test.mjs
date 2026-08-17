@@ -74,3 +74,18 @@ test('certify with NO oracle change releases done even without an ack (H2 fix)',
   assert.ok(!out.decision, 'no oracle change → must release done without requiring an ack');
   assert.match(out.systemMessage, /✅ done/);
 });
+test('the stop gate logs every verdict, so "why did it keep going?" is answerable', async () => {
+  const { readDecisions } = await import('../hooks/lib/decisions.mjs');
+  const repo = makeTempRepo(); const wt = path.join(repo,'.claude','worktrees','ui'); fs.mkdirSync(wt,{recursive:true});
+  const rd = path.join(repo,'.seeks','run','ui'); fs.mkdirSync(rd,{recursive:true});
+  const st = { loop:'ui', armed:true, done:false, worktree_path:wt, open_items:2, max_iters:50, stuck_threshold:3, no_progress_count:0 };
+  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify(st));
+  run(wt);                                                                   // block: work remains
+  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify({ ...st, no_progress_count:3 }));
+  run(wt);                                                                   // allow: stuck
+  const rows = readDecisions(rd, { hook:'stop-gate', limit:0 });
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].action, 'block'); assert.equal(rows[0].rule, 'continue');
+  assert.equal(rows[1].action, 'allow'); assert.equal(rows[1].rule, 'stop:stuck'); assert.equal(rows[1].stop_kind, 'stuck');
+  assert.equal(rows[0].session, 's1');
+});

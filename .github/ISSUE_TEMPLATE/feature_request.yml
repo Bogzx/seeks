@@ -1,0 +1,42 @@
+name: Feature request
+description: Suggest something seeks should be able to do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        seeks has **zero runtime dependencies** and intends to keep it that way — proposals that need a package have a higher bar than ones that don't.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What can't you do today
+      description: Describe the situation you hit, not the solution you have in mind. What did you want to walk away from, and what stopped you?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like instead
+      description: If you have a shape in mind (a new `/seeks:*` command, a knob in the loop's status, an env var), sketch it.
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Guardrails / enforcement
+        - The loop itself (maker / verifier / sweeps)
+        - Budgets (iterations, wall-clock, cost)
+        - Slash commands / UX
+        - Delivery (L3, PRs, worktrees)
+        - Docs
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: workaround
+    attributes:
+      label: How you're working around it now
+    validations:
+      required: false

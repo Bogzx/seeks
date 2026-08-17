@@ -20,13 +20,56 @@ Tell Claude Code "fix the failing tests" and it fixes a few, then stops to check
 
 ## How it works
 
-seeks runs the loop inside a **control plane** — fast Node hooks between Claude and your repo that can veto any action, in code the model can't read or edit:
+seeks runs the loop inside a **control plane** — fast Node hooks between Claude and your repo that veto actions in deterministic code, before they run:
 
 - **A separate verifier** re-runs your done-conditions in a clean context. The maker never signs off on its own work.
-- **Guardrails on every action** — can't touch `.env` / `.git`, can't leave the worktree, can't relax a test to fake green, can't push or merge.
-- **A budget it can't reach** — iteration *and* wall-clock caps live in hook-owned files. "Loop forever" is impossible by construction.
+- **Guardrails on every *edit*** — the file-editing tools can't write `.env` / secrets / `.git`, can't leave the worktree, and can't hand-write loop state. No level may `git push`, `merge` or `rebase` — the hook *parses* the command for it rather than grepping.
+- **Test edits aren't blocked — they're *accounted for*.** Touching an oracle file doesn't fake a green: the verifier has to acknowledge the exact changed set, and the gate re-blocks `done` if it drifts afterwards.
+- **A budget it has to work to reach** — iteration *and* wall-clock caps live in hook-owned files. The edit tools **cannot** write them: that half *is* by construction. Bash is a Turing-complete shell, so there the block is **best-effort** — thorough, parsed rather than pattern-matched, and [honest about where it ends](#the-one-guarantee-that-is-not-by-construction).
 
 Give it a goal with a check you can run (`npm test` exits 0, `mypy` clean) and it finishes for real, hands back to you, or stops at a limit — never wandering off, never faking done. **`main` moves only when you click merge.**
+
+### What the guardrails cover — and what they don't
+
+Worth being precise about, because this boundary is what decides whether you can actually walk away.
+
+There are exactly **two** tiers here, and the difference between them is the whole story. A verdict computed from a **path** is decidable, so it is *enforced*. A verdict computed from a **shell command string** is a judgement about what a Turing-complete language will do, so it is *best-effort* — however good it gets.
+
+| | Status |
+|---|---|
+| **Edits** (`Edit`/`Write`/`MultiEdit`/`NotebookEdit`) | **Deterministically enforced.** Denylist, worktree confinement, loop-state files, L1 report-only, and the wrap-up window are all checked in code before the tool runs, against a resolved path. The denylist is a **floor** — a loop can add to it, never narrow it. **This is the tier that is true by construction.** |
+| **`git push` / `merge` / `rebase` via Bash** | **Best-effort, and we have not found a miss.** The command is *parsed*, not pattern-matched: `git -C … push`, `git.exe push`, a push in the second segment of a `&&` chain, `env`/`sudo -u ci`/`timeout 30`/`command`/`exec`/`nohup`/`nice`/`xargs` wrappers, `(git push)`, `{ git push; }`, `eval "git push"`, `bash -c "git push"`, `env -i`, `\git`, a tab separator, `GIT_DIR=x`, and `git -c x=y push` all deny. Judging a *command name* is the easy end of this problem — but it is still a command string. |
+| **Loop state (the budget) via Bash** | **Best-effort, hardened, and leaky at the edges.** Same machinery, harder problem: it must judge a *path*. The parser tracks `cd`/`pushd`/`popd`/`env -C`/`git -C` across segments, collapses `.` and `..`, expands `{a,b}` brace alternations and `{1..9}` ranges before it reads anything, matches `*`, `?` and `[a-z]`/`[!a]` classes with the shared glob engine (the same one the denylist uses), recurses into `eval`/`sh -c`/here-strings, scans interpreter and `awk`/`sed`/editor payloads for a hook-owned name, and refuses `rm`/`mv`/`ln`/`tar -C` on the run dir itself. An expansion too large to enumerate is treated as *potentially* hook-owned rather than as safe. [What still gets through is listed below](#the-one-guarantee-that-is-not-by-construction) — and pinned in the test suite. |
+| **Everything else Bash can do** | **Best-effort by default — or an allowlist, if you turn one on.** Out of the box the denylist and worktree confinement apply to the *edit tools only*, so a `cat > ../../.env` goes through. Set **[`SEEKS_STRICT_BASH`](#strict-bash-mode)** and Bash becomes deny-by-default instead. |
+| **Reads** | **Not policed at all.** The model can read `.env`, your secrets, and seeks' own hook code. seeks constrains what gets *changed*, not what gets *seen*. |
+| **Every verdict** | **Logged.** Allow, deny and *hook crash* all append to `.seeks/run/<name>/decisions.jsonl`; `/seeks:why` replays them. The hooks fail **open** on error by design — the log is how you tell "allowed" apart from "enforcement was off". |
+
+### The one guarantee that is not by construction
+
+The budget files are the loop's brakes: one write to `.seeks/run/<name>/status.json` releases the iteration cap, the wall-clock, the verifier gate *and* the denylist at once. The edit tools cannot reach them. **Bash can, if you try hard enough.**
+
+Known and deliberately un-closed — each one is a passing test asserting **allow**, so nobody discovers them the hard way:
+
+- **A name assembled at runtime.** `P=$(printf 'sta%s' 'tus.json'); echo x > "$P"` — the string never appears in the command.
+- **An encoded payload.** `… | base64 -d | sh`.
+- **A script we only see the name of.** `python3 /tmp/dropper.py`, or an `npm run` script. The write happens inside a file the hook never reads.
+- **A symlink pivot with a dynamic target.** `ln -s $(pwd) /tmp/x`, then write through `/tmp/x`.
+- **A `cd` from an *earlier* Bash call.** Claude Code keeps one shell across calls; the hook is told the session's directory, not the shell's. A bare `status.json` or anything through `..` denies for exactly this reason, but `cd <run-dir>/..` in one call and `ui/status.json` in the next still lands.
+
+None of this is fixable by reading a command string — that is the actual boundary, not a to-do list. **If the goal or the codebase is untrusted, run the loop in a container.** That is the only way the Bash gap closes by construction rather than by policy; **[`SEEKS_STRICT_BASH`](#strict-bash-mode)** is the next best thing, and the `Edit`-tool protection above is unaffected by any of it.
+
+### Strict Bash mode
+
+For a goal or a repo you don't trust, set **`SEEKS_STRICT_BASH=1`** (or `"strict_bash": true` in the loop's status). Bash flips from *allow-unless-matched* to **deny-unless-allowlisted**: every segment's head command must be on the list, so `curl … | sh`, `rm -rf`, `chmod`, `ssh`, `nc`, `scp` and any bare binary are **denied** rather than merely un-policed. Wrappers don't help — `sudo rm -rf /` is judged as `rm` — and `eval`/`sh -c` payloads are judged too.
+
+```bash
+SEEKS_STRICT_BASH=1 claude          # for the whole session
+node bin/seeks.mjs status-set ui '{"strict_bash":true,"strict_bash_allow":["cargo","rustc"]}'   # per loop
+```
+
+The default list is inspection tools (`ls cat grep rg find sed awk diff …`), the loop's working set (`cd mkdir cp mv touch`), and the toolchain (`git node npm npx pnpm yarn bun make just`). Add anything your checks need with `strict_bash_allow`; `/seeks:doctor` prints the active list.
+
+**Be clear about what this is: an allowlist, not a sandbox.** `node` and `npm` are on it because the loop needs a toolchain, and `node -e` can do anything a shell can. Strict mode stops the careless and the casual, not a determined adversary. **A container is still the only guarantee.**
 
 ## How a loop ends
 
@@ -69,6 +112,7 @@ Each pass prints one line:
 | `/seeks:start [name] [--for 8h]` | arm + drive — the most-recent loop if no name |
 | `/seeks:status` · `/seeks:add <task>` · `/seeks:stop` | show state · append a backlog task · disarm |
 | `/seeks:harvest [name]` | finished or wound-down loops + their diffs / PR link |
+| `/seeks:why [name] [--denied]` | replay exactly why an action was allowed or denied (and whether a hook crashed) |
 | `/seeks:export [name]` | bundle a loop's state + transcript into a tarball (for bug reports) |
 | `/seeks:delete [name]` · `/seeks:doctor` | tear down · health check |
 

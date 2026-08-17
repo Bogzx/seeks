@@ -4,14 +4,17 @@ import { bumpFire, latchRelease } from './lib/hookstate.mjs';
 import { decide } from './lib/gate.mjs';
 import { composeBanner } from './lib/banner.mjs';
 import { oracleDiffHash } from './lib/oracle.mjs';
+import { appendDecision } from './lib/decisions.mjs';
 function stdin(){ try { return fs.readFileSync(0,'utf8'); } catch { return ''; } }
 const input = (()=>{ try { return JSON.parse(stdin()); } catch { return {}; } })();
+let runDir = null, sDir = null;                             // hoisted so a crash is still recordable: the run dir if we got
 try {                                                       // fail-open: a hook error must never trap the session
-  const cwd = input.cwd || process.cwd();
+  const cwd = input.cwd || process.cwd();                   // that far, else the plane-level .seeks
   if (hasSeeksNearby(cwd)){                                 // cheap fast-path, no subprocess
-    const sDir = seeksDir(cwd);                             // authoritative: git-common-dir
+    sDir = seeksDir(cwd);                                   // authoritative: git-common-dir
     const match = sDir && matchLoopByCwd(sDir, cwd);
     if (match){
+      runDir = match.runDir;
       const hs = bumpFire(match.runDir, input.session_id ?? null, Date.now());  // own counter + heartbeat
       let status = match.status;
       if (status.done === true){                            // only when a certify is pending (rare): is the oracle ack still fresh?
@@ -23,6 +26,9 @@ try {                                                       // fail-open: a hook
       if (d.action === 'allow' && d.stopKind)                  // terminal → latch the release: this banner prints ONCE, then
         latchRelease(match.runDir, d.stopKind, Date.now());     // matchLoopByCwd skips the loop until /seeks:start reset-fires
       const banner = composeBanner(status, d, hs.stop_fires, { color: !!process.env.SEEKS_BANNER_COLOR, now: Date.now() });
+      appendDecision(match.runDir, { hook:'stop-gate', action: d.action, rule: d.stopKind ? `stop:${d.stopKind}` : 'continue',
+        stop_kind: d.stopKind ?? null, reason: d.reason ?? null, stop_fires: hs.stop_fires ?? null,
+        session: input.session_id ?? null });   // why the loop kept going (or stopped) is now replayable via `seeks why`
       // Two audiences, two channels. Claude Code surfaces a Stop-block `reason` to the USER
       // (rendered as "Stop hook feedback"), NOT just to the model — so putting the verbose
       // per-pass continue-instruction there spams the transcript on every single pass. The
@@ -36,5 +42,8 @@ try {                                                       // fail-open: a hook
         : JSON.stringify({ systemMessage: banner }));
     }
   }
-} catch { /* fail-open: allow the stop */ }
+} catch (e) {   // fail-open: allow the stop — but record it, or a crashed gate is indistinguishable from a clean release
+  appendDecision(runDir ?? sDir, { hook:'stop-gate', action:'crash', rule:'hook-crash',
+    error: String((e && e.stack) || e), session: input.session_id ?? null });
+}
 process.exit(0);

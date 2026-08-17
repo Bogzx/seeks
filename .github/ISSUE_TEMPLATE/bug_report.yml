@@ -1,0 +1,75 @@
+name: Bug report
+description: Something in a loop, a hook or a guardrail didn't do what it says it does.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **The single most useful thing you can attach is `/seeks:export` output** — it bundles the loop's run state, the guardrail decision log and the raw session transcript, which is usually enough to diagnose without a round-trip.
+
+        If this is a **security** issue (something got past a guardrail the README says is enforced), please use [private vulnerability reporting](https://github.com/Bogzx/seeks/security/advisories/new) instead — see [SECURITY.md](https://github.com/Bogzx/seeks/blob/main/SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+      placeholder: "I ran /seeks:start and the loop stopped after one pass with…"
+    validations:
+      required: true
+  - type: textarea
+    id: export
+    attributes:
+      label: /seeks:export output
+      description: |
+        Run **`/seeks:export`** in the session and attach the tarball it produces (drag it into this box). It never includes `.env` or secrets. If you can't share the whole bundle, paste `.seeks/run/<name>/status.json` and the tail of `decisions.jsonl`.
+      placeholder: "Drag the seeks-export-<name>.tar.gz here, or paste status.json + decisions.jsonl"
+    validations:
+      required: false
+  - type: textarea
+    id: why
+    attributes:
+      label: /seeks:why output
+      description: |
+        If a guardrail blocked or allowed something unexpectedly, paste **`/seeks:why <name> --denied`**. If the guardrails seem not to have run at all, paste **`/seeks:why <name> --crashes`** — the hooks fail open, so a crash there means enforcement was silently off.
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: doctor
+    attributes:
+      label: /seeks:doctor output
+      description: Run **`/seeks:doctor`** and paste the report — it includes the installed build, `node`/`git` on the hook's PATH, and the active tier.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: seeks version
+      description: "`node \"${CLAUDE_PLUGIN_ROOT}/bin/seeks.mjs\" --version` (also in /seeks:doctor)."
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: OS + Node + Claude Code version
+      placeholder: "macOS 15.3 · node v20.11.1 (system, not nvm) · Claude Code 2.x"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The goal you gave it, the level (L1/L2/L3), and the commands you ran.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before filing
+      options:
+        - label: "`/seeks:doctor` says `node` and `git` are on the hook's PATH (the #1 cause of `Stop hook error`)"
+          required: false
+        - label: I checked this isn't one of the documented gaps in the README's coverage table
+          required: false

@@ -1,4 +1,7 @@
 {
   "name": "seeks",
-  "description": "Self-running, verifier-gated loops with durable .seeks/ state and native worktrees."
+  "version": "0.1.0",
+  "description": "Self-running, verifier-gated loops with durable .seeks/ state and native worktrees.",
+  "license": "MIT",
+  "homepage": "https://github.com/Bogzx/seeks#readme"
 }
