@@ -35,12 +35,26 @@ Worth being precise about, because this boundary is what decides whether you can
 
 | | Status |
 |---|---|
-| **Edits** (`Edit`/`Write`/`MultiEdit`/`NotebookEdit`) | **Deterministically enforced.** Denylist, worktree confinement, loop-state files, L1 report-only, and the wrap-up window are all checked in code before the tool runs. |
-| **`git push` / `merge` / `rebase`, and any touch of loop state, via Bash** | **Enforced**, including the obvious evasions (`git -C … push`, `git.exe push`, a push in the second segment of a `&&` chain, `echo … > status.json`, `tee`, `sed -i`). |
-| **Everything else Bash can do** | **Best-effort, not a guarantee.** The denylist and worktree confinement apply to the *edit tools only* — a `cat > ../../.env` still goes through. A shell is Turing-complete, so no pattern-matching policy can police it in full; path obfuscation through `$(…)` or variables is explicitly out of scope. |
+| **Edits** (`Edit`/`Write`/`MultiEdit`/`NotebookEdit`) | **Deterministically enforced.** Denylist, worktree confinement, loop-state files, L1 report-only, and the wrap-up window are all checked in code before the tool runs. The denylist is a **floor** — a loop can add to it, never narrow it. |
+| **`git push` / `merge` / `rebase`, and any touch of loop state, via Bash** | **Enforced**, including the ordinary-shell evasions: `git -C … push`, `git.exe push`, a push in the second segment of a `&&` chain, `env git push`, `sudo -u ci git push`, `timeout 30 git push`, `(git push)`, `eval "git push"`, `bash -c "git push"`, and `echo … > status.json` / `tee` / `sed -i` at a hook-owned path. |
+| **Everything else Bash can do** | **Best-effort by default — or an allowlist, if you turn one on.** Out of the box the denylist and worktree confinement apply to the *edit tools only*, so a `cat > ../../.env` goes through. Set **[`SEEKS_STRICT_BASH`](#strict-bash-mode)** and Bash becomes deny-by-default instead. Either way, a shell is Turing-complete: `$(…)` and variable indirection are explicitly out of scope. |
 | **Reads** | **Not policed at all.** The model can read `.env`, your secrets, and seeks' own hook code. seeks constrains what gets *changed*, not what gets *seen*. |
+| **Every verdict** | **Logged.** Allow, deny and *hook crash* all append to `.seeks/run/<name>/decisions.jsonl`; `/seeks:why` replays them. The hooks fail **open** on error by design — the log is how you tell "allowed" apart from "enforcement was off". |
 
-If the goal or the codebase is untrusted, **run the loop in a container** — that is the only way the Bash gap is closed by construction rather than by policy.
+If the goal or the codebase is untrusted, **run the loop in a container** — that is the only way the Bash gap is closed by construction rather than by policy. `SEEKS_STRICT_BASH` is the next best thing.
+
+### Strict Bash mode
+
+For a goal or a repo you don't trust, set **`SEEKS_STRICT_BASH=1`** (or `"strict_bash": true` in the loop's status). Bash flips from *allow-unless-matched* to **deny-unless-allowlisted**: every segment's head command must be on the list, so `curl … | sh`, `rm -rf`, `chmod`, `ssh`, `nc`, `scp` and any bare binary are **denied** rather than merely un-policed. Wrappers don't help — `sudo rm -rf /` is judged as `rm` — and `eval`/`sh -c` payloads are judged too.
+
+```bash
+SEEKS_STRICT_BASH=1 claude          # for the whole session
+node bin/seeks.mjs status-set ui '{"strict_bash":true,"strict_bash_allow":["cargo","rustc"]}'   # per loop
+```
+
+The default list is inspection tools (`ls cat grep rg find sed awk diff …`), the loop's working set (`cd mkdir cp mv touch`), and the toolchain (`git node npm npx pnpm yarn bun make just`). Add anything your checks need with `strict_bash_allow`; `/seeks:doctor` prints the active list.
+
+**Be clear about what this is: an allowlist, not a sandbox.** `node` and `npm` are on it because the loop needs a toolchain, and `node -e` can do anything a shell can. Strict mode stops the careless and the casual, not a determined adversary. **A container is still the only guarantee.**
 
 ## How a loop ends
 
@@ -83,6 +97,7 @@ Each pass prints one line:
 | `/seeks:start [name] [--for 8h]` | arm + drive — the most-recent loop if no name |
 | `/seeks:status` · `/seeks:add <task>` · `/seeks:stop` | show state · append a backlog task · disarm |
 | `/seeks:harvest [name]` | finished or wound-down loops + their diffs / PR link |
+| `/seeks:why [name] [--denied]` | replay exactly why an action was allowed or denied (and whether a hook crashed) |
 | `/seeks:export [name]` | bundle a loop's state + transcript into a tarball (for bug reports) |
 | `/seeks:delete [name]` · `/seeks:doctor` | tear down · health check |
 
