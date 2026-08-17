@@ -316,3 +316,34 @@ test('oracle-diff surfaces oracle_globs_present (vacuous-accounting signal)', ()
   d = JSON.parse(run(repo,'oracle-diff','v'));
   assert.equal(d.globs_present, 0);   // vacuous: nothing matches → accounting would be empty
 });
+test('why replays the decision log: tally, filters, and --json', () => {
+  const repo = makeTempRepo(); const rd = seed(repo,'ui',{ loop:'ui' });
+  const write = (r) => fs.appendFileSync(path.join(rd,'decisions.jsonl'), JSON.stringify(r)+'\n');
+  write({ ts:'2026-01-01T00:00:00.000Z', hook:'pre-tool', tool:'Bash', action:'allow', rule:null, input:{ command:'npm test' } });
+  write({ ts:'2026-01-01T00:00:01.000Z', hook:'pre-tool', tool:'Bash', action:'deny', rule:'git-push', reason:'[seeks] delivery is automated', input:{ command:'git push' } });
+  write({ ts:'2026-01-01T00:00:02.000Z', hook:'stop-gate', action:'block', rule:'continue' });
+  const all = run(repo,'why','ui');
+  assert.match(all, /3 decisions logged · 1 allow · 2 deny · 0 hook crash/);
+  assert.match(all, /git-push×1/);
+  assert.match(all, /delivery is automated/);
+  const denied = run(repo,'why','ui','--denied');
+  assert.match(denied, /git push/); assert.doesNotMatch(denied, /npm test/);
+  assert.equal(run(repo,'why','ui','--last','1','--json').split('\n').length, 1);
+  assert.equal(JSON.parse(run(repo,'why','ui','--last','1','--json')).hook, 'stop-gate');   // --last tails
+  assert.match(run(repo,'why','ui','--rule','git-push'), /git push/);
+  assert.match(run(repo,'why','nosuchloop'), /no decisions recorded/);
+});
+test('why merges the plane-level crash log with the loop log', () => {
+  const repo = makeTempRepo(); const rd = seed(repo,'ui',{ loop:'ui' });
+  fs.appendFileSync(path.join(rd,'decisions.jsonl'), JSON.stringify({ ts:'2026-01-01T00:00:00.000Z', hook:'pre-tool', action:'allow' })+'\n');
+  // a hook that threw before it knew WHICH loop it was in lands here
+  fs.appendFileSync(path.join(repo,'.seeks','decisions.jsonl'), JSON.stringify({ ts:'2026-01-01T00:00:01.000Z', hook:'pre-tool', action:'crash', rule:'hook-crash', error:'boom' })+'\n');
+  const o = run(repo,'why','ui');
+  assert.match(o, /2 decisions logged/); assert.match(o, /1 hook crash/); assert.match(o, /boom/);
+  assert.match(run(repo,'why','ui','--crashes'), /hook-crash/);
+});
+test('preflight reports the strict-bash surface so /seeks:doctor can', () => {
+  const r = JSON.parse(run(makeTempRepo(),'preflight'));
+  assert.equal(r.strict_bash, false);
+  assert.ok(Array.isArray(r.strict_bash_allow) && r.strict_bash_allow.includes('npm'));
+});
