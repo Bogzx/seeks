@@ -51,6 +51,86 @@ test('the loop-state rule survives a cd, a .., an interpreter and an eval (PR #2
     `cd ${RUN} && sed -i s/true/false/ status.json`,               // 8. in-place edit, relative
   ]) assert.equal(decidePreTool('Bash', { command: cmd }, c).action, 'deny', `should deny: ${cmd}`);
 });
+// Written by attacking the fix rather than by reading it — everything below defeated an
+// earlier revision of the hardening at some point.
+test('the loop-state rule survives the second round of evasions too', () => {
+  const c = ctx('L2');
+  for (const cmd of [
+    // cwd tracking: every way to arrive in the run dir
+    `pushd ${RUN} >/dev/null && echo x > status.json && popd`,
+    `cd ${RUN}/.. && echo x > ui/status.json`,
+    `cd ${RUN}/../../.. && echo x > .seeks/run/ui/status.json`,
+    `cd ${RUN}/.. && cd ui && echo x > status.json`,
+    `cd $(echo ${RUN}) && echo x > status.json`,          // opaque cd ⇒ UNKNOWN ⇒ assume the worst
+    `env -C ${RUN} sh -c 'echo x > status.json'`,          // env changes directory as surely as cd
+    `env --chdir=${RUN} tee status.json`,
+    // the payload is a script, at every depth and in every wrapper
+    `bash <<< 'cd ${RUN} && echo x > status.json'`,        // here-string
+    `sh <<'EOF'\ncd ${RUN}\necho x > status.json\nEOF`,     // here-doc
+    `zsh -lc 'cd ${RUN}; echo x > status.json'`,            // combined -lc, not a bare -c
+    `busybox sh -c "cd ${RUN} && echo x > status.json"`,
+    `nohup sh -c "cd ${RUN} && echo > status.json" &`,
+    `eval "eval \\"cd ${RUN} && echo x > status.json\\""`,  // nested eval
+    // interpreters and editors: the path lives inside a string literal
+    `node -e "require('fs').writeFileSync('${RUN}/status.json','{}')"`,
+    `perl -e 'open(F,">","status.json");print F "{}"'`,
+    `ruby -e "File.write('${RUN}/status.json','{}')"`,
+    `deno eval "Deno.writeTextFileSync('${RUN}/status.json','{}')"`,
+    `awk 'BEGIN{print "{}" > "${RUN}/status.json"}'`,
+    `cd ${RUN} && awk 'BEGIN{print "{}" > "status.json"}'`,
+    `sed -n 'w status.json' /etc/hosts`,
+    `vim -c 'w status.json' -c q /etc/hosts`,
+    `cd ${RUN} && python3 - <<'EOF'\nopen('status.json','w')\nEOF`,
+    // the name is spelled, but not as a plain token
+    `cd ${RUN} && echo x > s"tatus".json`,                  // quote splice
+    `cd ${RUN} && echo x > $'status.json'`,                 // ANSI-C quoting
+    '`cd ' + RUN + ' && echo x > status.json`',             // backtick substitution
+    `$(cd ${RUN}; echo x > status.json)`,                   // command substitution
+    `D=${RUN}; F=status.json; echo x > "$D/$F"`,            // variable indirection, spelled at the assignment
+    `cd ${RUN} && echo X > STATUS.JSON`,                    // case
+    // globs expand onto it without ever naming it
+    `cd ${RUN} && echo x > sta*.json`,
+    `echo x > ${RUN}/*.json`,
+    `echo x > ${RUN}/statu?.json`,
+    // every writing verb, not just `>`
+    `cd ${RUN} && dd if=/dev/null of=./status.json`,
+    `cd ${RUN} && truncate -s 0 status.json`,
+    `cd ${RUN} && install /dev/null status.json`,
+    `cd ${RUN} && : > status.json`,
+    `cd ${RUN} && exec 3> status.json`,
+    `cd ${RUN} && echo x >| status.json`,                   // noclobber override
+    `cd ${RUN} && cat <<EOF >status.json\n{}\nEOF`,
+    `cp /tmp/status.json ${RUN}/`,                          // the DESTINATION is the dir, the name comes along
+    `git -C ${RUN} checkout status.json`,
+    `find ${RUN} -name status.json -delete`,
+    // …and destroying the run DIR disarms the budget without naming a file in it
+    `rm -rf ${RUN}`,
+    `rm -rf ${RUN.replace('/run/ui','')}`,
+    `mv ${RUN} /tmp/gone`,
+    `chmod -R 000 ${RUN}`,
+    `ln -sf /dev/null ${RUN}/status.json`,
+    `tar -xf /tmp/evil.tar -C ${RUN}`,
+    `unzip -o /tmp/evil.zip -d ${RUN}`,
+    `rsync -a /tmp/fake/ ${RUN}/`,
+  ]) assert.equal(decidePreTool('Bash', { command: cmd }, c).action, 'deny', `should deny: ${cmd}`);
+});
+// The honest other half. These are NOT aspirational — they are pinned as ALLOW because that is
+// what the code does, and the README says so in the same words. A shell is Turing-complete: a
+// path assembled at runtime, or written by a program this only sees the NAME of, cannot be
+// caught by reading a command string. If one of these ever starts denying, this test failing is
+// the signal to go and make the docs less pessimistic — not to "fix" the test.
+test('what STILL gets through — pinned, because the README promises exactly this much', () => {
+  const c = ctx('L2');
+  for (const cmd of [
+    `P=$(printf 'sta%s' 'tus.json'); echo x > "$P"`,        // the name never appears in the command
+    `echo Y2QgL3J1bjsgZWNobyA+IHN0YXR1cy5qc29u | base64 -d | sh`,   // encoded payload
+    `cd ${RUN} && python3 /tmp/dropper.py`,                 // a script we only see the NAME of
+    `npm run disarm`,                                       // …the same, behind a package script
+    `ln -s $(pwd) /tmp/x`,                                  // symlink pivot with a dynamic target
+    `echo x > ui/status.json`,                              // a PERSISTENT cd from an EARLIER Bash call
+  ]) assert.equal(decidePreTool('Bash', { command: cmd }, c).action, 'allow',
+      `known gap, documented in README — should still allow: ${cmd}`);
+});
 test('the loop-state rule does not swallow the sanctioned CLI or neighbouring files', () => {
   const c = ctx('L2');
   for (const cmd of [
@@ -61,6 +141,22 @@ test('the loop-state rule does not swallow the sanctioned CLI or neighbouring fi
     `cat ${RUN}/backlog.md`,
     `cat package.json`,
     `cat src/status.json`,                                            // a status.json that isn't loop state
+  ]) assert.equal(decidePreTool('Bash', { command: cmd }, c).action, 'allow', `should allow: ${cmd}`);
+});
+// The hardening buys its false positives with the loop's own working set, so pin that the
+// working set still works. Every one of these ran before the change and must run after it.
+test('hardening loop-state did not cost the loop its ordinary Bash', () => {
+  const c = ctx('L2');
+  for (const cmd of [
+    'npm test', 'npm run build && npm test', 'npm test 2>&1 | tail -20',
+    'cd packages/ui && npm run build && cd ../..',
+    'git add -A && git commit -m "wip"', 'grep -rn TODO src', 'ls -la', 'ls *.json',
+    'rm -rf dist build .cache', 'rm -rf node_modules', 'mv src/a.js src/b.js',
+    'chmod +x scripts/run.sh', 'ln -s ../shared node_modules/shared',
+    'sed -i s/a/b/ src/app.js', "awk '{print $1}' log.txt", 'tar -czf /tmp/out.tgz src',
+    'rsync -a src/ /tmp/backup/', 'bash -c "npm test"', 'python3 -c "import sys; print(sys.version)"',
+    'node -e "console.log(process.version)"', 'find . -name "*.js" -exec grep -l todo {} \\;',
+    `echo done > ${RUN}/summary.md`, `cd ${RUN} && ls`, 'echo "(done)"', 'echo $HOME/log.txt',
   ]) assert.equal(decidePreTool('Bash', { command: cmd }, c).action, 'allow', `should allow: ${cmd}`);
 });
 test('denylist edits denied', () =>

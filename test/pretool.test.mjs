@@ -34,6 +34,26 @@ test('denies a Bash disarm of status.json, end to end through the real hook', ()
   assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
   assert.match(out.hookSpecificOutput.permissionDecisionReason, /hook-owned/);
 });
+// The same disarm the reviewer landed on PR #22, driven through the REAL hook rather than
+// through decidePreTool — so the cwd the policy resolves against is the one the hook actually
+// receives, not one a test invented.
+test('denies the cd-then-relative disarm end to end, through the real hook', () => {
+  const { wt, rd } = armLoop('L2');
+  const run_ = rd.split('\\').join('/');
+  for (const command of [
+    `cd ${run_} && echo '{"armed":false}' > status.json`,
+    `cd ${run_}; echo x > ./status.json`,
+    `echo x > ${run_}/../ui/status.json`,
+    `eval "cd ${run_} && echo x > status.json"`,
+    `python3 -c "open('${run_}/status.json','w').write('{}')"`,
+    `rm -rf ${run_}`,
+  ]){
+    const out = JSON.parse(run(wt, { tool_name:'Bash', tool_input:{ command } }));
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'deny', `should deny: ${command}`);
+    assert.match(out.hookSpecificOutput.permissionDecisionReason, /hook-owned/);
+  }
+  assert.equal(run(wt, { tool_name:'Bash', tool_input:{ command:'npm test' } }), '', 'ordinary work still runs');
+});
 test('fail-open (exit 0, no throw) on a corrupt status.json (M3)', () => {
   const repo = makeTempRepo(); const wt = path.join(repo,'.claude','worktrees','ui'); fs.mkdirSync(wt,{recursive:true});
   const rd = path.join(repo,'.seeks','run','ui'); fs.mkdirSync(rd,{recursive:true});
