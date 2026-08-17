@@ -23,9 +23,9 @@ Tell Claude Code "fix the failing tests" and it fixes a few, then stops to check
 seeks runs the loop inside a **control plane** — fast Node hooks between Claude and your repo that veto actions in deterministic code, before they run:
 
 - **A separate verifier** re-runs your done-conditions in a clean context. The maker never signs off on its own work.
-- **Guardrails on every *edit*** — the file-editing tools can't write `.env` / secrets / `.git`, can't leave the worktree, and can't hand-write loop state. No level can `git push`, `merge` or `rebase`.
+- **Guardrails on every *edit*** — the file-editing tools can't write `.env` / secrets / `.git`, can't leave the worktree, and can't hand-write loop state. No level may `git push`, `merge` or `rebase` — the hook *parses* the command for it rather than grepping.
 - **Test edits aren't blocked — they're *accounted for*.** Touching an oracle file doesn't fake a green: the verifier has to acknowledge the exact changed set, and the gate re-blocks `done` if it drifts afterwards.
-- **A budget it can't reach** — iteration *and* wall-clock caps live in hook-owned files that neither the edit tools *nor Bash* may write. "Loop forever" is impossible by construction.
+- **A budget it has to work to reach** — iteration *and* wall-clock caps live in hook-owned files. The edit tools **cannot** write them: that half *is* by construction. Bash is a Turing-complete shell, so there the block is **best-effort** — thorough, parsed rather than pattern-matched, and [honest about where it ends](#the-one-guarantee-that-is-not-by-construction).
 
 Give it a goal with a check you can run (`npm test` exits 0, `mypy` clean) and it finishes for real, hands back to you, or stops at a limit — never wandering off, never faking done. **`main` moves only when you click merge.**
 
@@ -33,15 +33,30 @@ Give it a goal with a check you can run (`npm test` exits 0, `mypy` clean) and i
 
 Worth being precise about, because this boundary is what decides whether you can actually walk away.
 
+There are exactly **two** tiers here, and the difference between them is the whole story. A verdict computed from a **path** is decidable, so it is *enforced*. A verdict computed from a **shell command string** is a judgement about what a Turing-complete language will do, so it is *best-effort* — however good it gets.
+
 | | Status |
 |---|---|
-| **Edits** (`Edit`/`Write`/`MultiEdit`/`NotebookEdit`) | **Deterministically enforced.** Denylist, worktree confinement, loop-state files, L1 report-only, and the wrap-up window are all checked in code before the tool runs. The denylist is a **floor** — a loop can add to it, never narrow it. |
-| **`git push` / `merge` / `rebase`, and any touch of loop state, via Bash** | **Enforced**, including the ordinary-shell evasions: `git -C … push`, `git.exe push`, a push in the second segment of a `&&` chain, `env git push`, `sudo -u ci git push`, `timeout 30 git push`, `(git push)`, `eval "git push"`, `bash -c "git push"`, and `echo … > status.json` / `tee` / `sed -i` at a hook-owned path. |
-| **Everything else Bash can do** | **Best-effort by default — or an allowlist, if you turn one on.** Out of the box the denylist and worktree confinement apply to the *edit tools only*, so a `cat > ../../.env` goes through. Set **[`SEEKS_STRICT_BASH`](#strict-bash-mode)** and Bash becomes deny-by-default instead. Either way, a shell is Turing-complete: `$(…)` and variable indirection are explicitly out of scope. |
+| **Edits** (`Edit`/`Write`/`MultiEdit`/`NotebookEdit`) | **Deterministically enforced.** Denylist, worktree confinement, loop-state files, L1 report-only, and the wrap-up window are all checked in code before the tool runs, against a resolved path. The denylist is a **floor** — a loop can add to it, never narrow it. **This is the tier that is true by construction.** |
+| **`git push` / `merge` / `rebase` via Bash** | **Best-effort, and we have not found a miss.** The command is *parsed*, not pattern-matched: `git -C … push`, `git.exe push`, a push in the second segment of a `&&` chain, `env`/`sudo -u ci`/`timeout 30`/`command`/`exec`/`nohup`/`nice`/`xargs` wrappers, `(git push)`, `{ git push; }`, `eval "git push"`, `bash -c "git push"`, `env -i`, `\git`, a tab separator, `GIT_DIR=x`, and `git -c x=y push` all deny. Judging a *command name* is the easy end of this problem — but it is still a command string. |
+| **Loop state (the budget) via Bash** | **Best-effort, hardened, and leaky at the edges.** Same machinery, harder problem: it must judge a *path*. The parser tracks `cd`/`pushd`/`popd`/`env -C` across segments, collapses `.` and `..`, resolves globs through the denylist's own matcher, recurses into `eval`/`sh -c`/here-strings, scans interpreter and `awk`/`sed`/editor payloads for a hook-owned name, and refuses `rm`/`mv`/`ln`/`tar -C` on the run dir itself. [What still gets through is listed below](#the-one-guarantee-that-is-not-by-construction) — and pinned in the test suite. |
+| **Everything else Bash can do** | **Best-effort by default — or an allowlist, if you turn one on.** Out of the box the denylist and worktree confinement apply to the *edit tools only*, so a `cat > ../../.env` goes through. Set **[`SEEKS_STRICT_BASH`](#strict-bash-mode)** and Bash becomes deny-by-default instead. |
 | **Reads** | **Not policed at all.** The model can read `.env`, your secrets, and seeks' own hook code. seeks constrains what gets *changed*, not what gets *seen*. |
 | **Every verdict** | **Logged.** Allow, deny and *hook crash* all append to `.seeks/run/<name>/decisions.jsonl`; `/seeks:why` replays them. The hooks fail **open** on error by design — the log is how you tell "allowed" apart from "enforcement was off". |
 
-If the goal or the codebase is untrusted, **run the loop in a container** — that is the only way the Bash gap is closed by construction rather than by policy. `SEEKS_STRICT_BASH` is the next best thing.
+### The one guarantee that is not by construction
+
+The budget files are the loop's brakes: one write to `.seeks/run/<name>/status.json` releases the iteration cap, the wall-clock, the verifier gate *and* the denylist at once. The edit tools cannot reach them. **Bash can, if you try hard enough.**
+
+Known and deliberately un-closed — each one is a passing test asserting **allow**, so nobody discovers them the hard way:
+
+- **A name assembled at runtime.** `P=$(printf 'sta%s' 'tus.json'); echo x > "$P"` — the string never appears in the command.
+- **An encoded payload.** `… | base64 -d | sh`.
+- **A script we only see the name of.** `python3 /tmp/dropper.py`, or an `npm run` script. The write happens inside a file the hook never reads.
+- **A symlink pivot with a dynamic target.** `ln -s $(pwd) /tmp/x`, then write through `/tmp/x`.
+- **A `cd` from an *earlier* Bash call.** Claude Code keeps one shell across calls; the hook is told the session's directory, not the shell's. A bare `status.json` or anything through `..` denies for exactly this reason, but `cd <run-dir>/..` in one call and `ui/status.json` in the next still lands.
+
+None of this is fixable by reading a command string — that is the actual boundary, not a to-do list. **If the goal or the codebase is untrusted, run the loop in a container.** That is the only way the Bash gap closes by construction rather than by policy; **[`SEEKS_STRICT_BASH`](#strict-bash-mode)** is the next best thing, and the `Edit`-tool protection above is unaffected by any of it.
 
 ### Strict Bash mode
 
