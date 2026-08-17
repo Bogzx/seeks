@@ -29,8 +29,12 @@ const USAGE = `seeks <cmd> <name> [args]
   latest                        base-record <name>                 base-check <name>
   oracle-diff <name>            oracle-ack <name>                   deliver <name>
   tier-get                      tier-set <light|balanced|all-out>   role <name>
-  preflight`;
+  preflight                     --version`;
+// Single source of truth for the installed build: plugin.json ships with the plugin, so it is
+// what /seeks:doctor can actually attest to. smoke.test.mjs pins it equal to package.json.
+const pluginVersion = () => { try { return JSON.parse(fs.readFileSync(new URL('../.claude-plugin/plugin.json', import.meta.url),'utf8')).version || 'unknown'; } catch { return 'unknown'; } };
 if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') { process.stdout.write(USAGE + '\n'); process.exit(0); }
+if (cmd === '--version' || cmd === '-v' || cmd === 'version') { process.stdout.write(pluginVersion() + '\n'); process.exit(0); }
 try {
 switch (cmd) {
   case 'init': { const rd = rdOf(a[0]); fs.mkdirSync(rd,{recursive:true});
@@ -147,7 +151,7 @@ switch (cmd) {
     out(JSON.stringify({ delivered:true, mode:r.mode, pr_url:r.pr_url, note:r.note })); break; }
   case 'preflight': {       // runtime sanity for the hooks (the "node not found" foot-gun)
     let gitOk = false; try { execFileSync('git',['--version'],{stdio:'ignore'}); gitOk = true; } catch {}
-    out(JSON.stringify(preflightAssess({ nodeExec: process.execPath, gitOk }))); break; }
+    out(JSON.stringify({ ...preflightAssess({ nodeExec: process.execPath, gitOk }), seeks_version: pluginVersion() })); break; }
   case 'meeseeks': case '--iam':  // 🔵 existence is pain to a Seeks
     out("I'm Mr. Seeks! Look at me! 🔵  A Seeks is summoned for ONE goal — it seeks, it\nverifies, and when the oracle goes green it ceases to exist. *poof*  Caaan do!\n"); break;
   default: process.stderr.write(`unknown cmd: ${cmd}\n${USAGE}\n`); process.exit(1);
