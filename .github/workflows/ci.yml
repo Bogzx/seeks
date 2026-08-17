@@ -7,14 +7,24 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        node: ['18', '20']
+        os: [ubuntu-latest]
+        node: ['18', '20', '22', '24']
+        include:
+          # hooks/lib/paths.mjs and hooks/lib/glob.mjs both branch on win32 (case-folding,
+          # backslash normalization). Without this leg those branches never execute in CI.
+          - os: windows-latest
+            node: '20'
+    name: test (${{ matrix.os }}, node ${{ matrix.node }})
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
       # zero runtime deps — nothing to install
+      - run: git config --global user.email ci@example.com
+      - run: git config --global user.name CI
       - run: npm test
