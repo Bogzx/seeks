@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security issue (something got past a guardrail)
+    url: https://github.com/Bogzx/seeks/security/advisories/new
+    about: Please report privately. See SECURITY.md for what's in scope — including docs that overclaim.
+  - name: "\"Stop hook error: node not found\""
+    url: https://github.com/Bogzx/seeks#requirements
+    about: Node must be installed system-wide, not via nvm/fnm/asdf. Run /seeks:doctor — it prints the fix.
