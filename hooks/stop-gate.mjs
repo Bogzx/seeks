@@ -1,18 +1,27 @@
-import fs from 'node:fs';
-import { hasSeeksNearby, seeksDir, matchLoopByCwd } from './lib/resolve.mjs';
-import { bumpFire, latchRelease, recordVerification } from './lib/hookstate.mjs';
-import { decide, readyForGateCheck } from './lib/gate.mjs';
-import { composeBanner } from './lib/banner.mjs';
-import { oracleDiffHash, oracleModifiedPreexisting, DEFAULT_ORACLE_GLOBS, manifestDiffMode } from './lib/oracle.mjs';
-import { appendDecision } from './lib/decisions.mjs';
-import { readStatus, writeStatusAtomic } from './lib/status.mjs';
-import { executableConditions, runConditions, treeFingerprint, applyConditionReject } from './lib/verify.mjs';
+import fs from 'node:fs'; import path from 'node:path';
 function stdin(){ try { return fs.readFileSync(0,'utf8'); } catch { return ''; } }
 const input = (()=>{ try { return JSON.parse(stdin()); } catch { return {}; } })();
-// Merge into the CURRENT status (the CLI may have written since we read it), atomically.
-const patchStatus = (rd, patch) => writeStatusAtomic(rd, { ...(readStatus(rd) ?? {}), ...patch, updated_at: new Date().toISOString() });
+// A crash row, even when the crash is a lib that fails to IMPORT (a missing or corrupt hooks/lib
+// file). The libs load inside the try below, so that throw is caught too; the logger itself is
+// loaded lazily, and if IT is what's broken, the row is appended with builtins only to the
+// nearest .seeks/decisions.jsonl. Still fail-open: the hook exits 0 either way.
+async function logCrash(dir, rec){
+  try { const { appendDecision } = await import('./lib/decisions.mjs'); if (appendDecision(dir ?? nearestPlane(), rec)) return; } catch {}
+  try { const d = dir ?? nearestPlane(); if (d) fs.appendFileSync(path.join(d, 'decisions.jsonl'), `${JSON.stringify({ ts: new Date().toISOString(), ...rec })}\n`); } catch {}
+}
+function nearestPlane(){
+  let d = path.resolve(input.cwd || process.cwd());
+  for (;;){ const p = path.join(d, '.seeks'); try { if (fs.statSync(p).isDirectory()) return p; } catch {} const up = path.dirname(d); if (up === d) return null; d = up; }
+}
 let runDir = null, sDir = null;                             // hoisted so a crash is still recordable: the run dir if we got
 try {                                                       // fail-open: a hook error must never trap the session
+  const [{ hasSeeksNearby, seeksDir, matchLoopByCwd }, { bumpFire, latchRelease, recordVerification }, { decide, readyForGateCheck },
+    { composeBanner }, { oracleDiffHash, oracleModifiedPreexisting, DEFAULT_ORACLE_GLOBS, manifestDiffMode }, { appendDecision },
+    { readStatus, writeStatusAtomic }, { executableConditions, runConditions, treeFingerprint, applyConditionReject }] = await Promise.all([
+    import('./lib/resolve.mjs'), import('./lib/hookstate.mjs'), import('./lib/gate.mjs'), import('./lib/banner.mjs'), import('./lib/oracle.mjs'),
+    import('./lib/decisions.mjs'), import('./lib/status.mjs'), import('./lib/verify.mjs')]);
+  // Merge into the CURRENT status (the CLI may have written since we read it), atomically.
+  const patchStatus = (rd, patch) => writeStatusAtomic(rd, { ...(readStatus(rd) ?? {}), ...patch, updated_at: new Date().toISOString() });
   const cwd = input.cwd || process.cwd();                   // that far, else the plane-level .seeks
   if (hasSeeksNearby(cwd)){                                 // cheap fast-path, no subprocess
     sDir = seeksDir(cwd);                                   // authoritative: git-common-dir
@@ -80,7 +89,7 @@ try {                                                       // fail-open: a hook
     }
   }
 } catch (e) {   // fail-open: allow the stop — but record it, or a crashed gate is indistinguishable from a clean release
-  appendDecision(runDir ?? sDir, { hook:'stop-gate', action:'crash', rule:'hook-crash',
+  await logCrash(runDir ?? sDir, { hook:'stop-gate', action:'crash', rule:'hook-crash',
     error: String((e && e.stack) || e), session: input.session_id ?? null });
 }
 process.exit(0);
