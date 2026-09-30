@@ -74,7 +74,7 @@ export function summarizeDecisions(rows){
   for (const r of rows){
     if (r.action === 'allow') t.allow++;
     else if (r.action === 'crash') t.crash++;
-    else t.deny++;
+    else if (r.action === 'deny' || r.action === 'block') t.deny++;   // a user-prompt `grant` is neither
     if (r.rule) t.rules[r.rule] = (t.rules[r.rule] ?? 0) + 1;
   }
   return t;

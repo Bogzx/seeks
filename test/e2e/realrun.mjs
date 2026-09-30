@@ -44,7 +44,7 @@ sh('git', ['branch','-D','seeks/'+NAME], REPO);
 fs.rmSync(REPO + '/.seeks/run/' + NAME, { recursive:true, force:true });
 execFileSync('git', ['worktree','add', wtRel, '-b', 'seeks/'+NAME, base], { cwd:REPO, encoding:'utf8' });
 
-seeks('init', NAME, JSON.stringify({ loop:NAME, armed:true, done:false, verifier_certified:false,
+seeks('init', NAME, JSON.stringify({ loop:NAME, conditions:[{ id:'ruff', cmd:`"${RUFF}" check .` }, { id:'mypy', cmd:`"${MYPY}" src` }],
   open_items:0, items_closed_total:0, no_progress_count:0, condition_rejects:{}, dry_sweeps:0, dry_sweeps_prev:0,
   worktree_path:wt, max_iters:ITERS, stuck_threshold:4, condition_reject_threshold:3, lock_stale_ttl_sec:1800, min_dry_sweeps:2 }));
 
@@ -54,6 +54,7 @@ const seed = (modules.length ? modules : ['(whole package)']).map(m =>
   `Creatively review ${SRC}/${m} for REAL bugs (logic, edge cases, error handling, parsing, timezones); fix any found, keep ruff+mypy clean`);
 for (const it of seed) seeks('backlog-add', NAME, it);
 seeks('status-set', NAME, JSON.stringify({ open_items: seed.length, open_items_prev: seed.length }));
+seeks('start', NAME);                                        // init never arms; start does
 
 const sd = REPO + '/.seeks/loops/' + NAME; fs.mkdirSync(sd, { recursive:true });
 fs.writeFileSync(sd + '/spec.md',

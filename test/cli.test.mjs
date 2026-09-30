@@ -64,6 +64,10 @@ test('progress-tick: a certify (done) pass counts as progress, not stuck', () =>
   run(repo,'progress-tick','ui'); const s = JSON.parse(run(repo,'status-get','ui'));
   assert.equal(s.no_progress_count,0);
 });
+test('progress-tick: a verifier sign-off pass counts as progress too (done is now the gate\'s to write)', () => {
+  const repo = makeTempRepo(); seed(repo,'ui',{ loop:'ui', open_items:0, no_progress_count:2, verifier_certified:true });
+  run(repo,'progress-tick','ui'); assert.equal(JSON.parse(run(repo,'status-get','ui')).no_progress_count, 0);
+});
 test('--help prints usage and exits 0', () => {
   const out = run(makeTempRepo(),'--help');
   assert.match(out, /seeks <cmd> <name>/); assert.match(out, /reset-fires/); assert.match(out, /log-add/);
