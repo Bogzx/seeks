@@ -17,4 +17,7 @@ export function latchRelease(rd, stopKind, now){ const c = readHookState(rd) ?? 
 export function resetFires(rd){ const { released, released_at, ...c } = readHookState(rd) ?? {}; write(rd, { ...c, stop_fires:0 }); }
 // The gate's own verification of the done-conditions, keyed by the worktree fingerprint it ran on —
 // hook-owned like the rest of this file, so an unchanged tree is never re-run and never forged.
+// The headless runner's own record (session id to --resume, container or not) — hook-owned too, so a
+// maker can't point a resume at a different conversation.
+export function recordRunner(rd, r){ const c = readHookState(rd) ?? { stop_fires:0 }; write(rd, { ...c, runner: r }); }
 export function recordVerification(rd, v){ const c = readHookState(rd) ?? { stop_fires:0 }; write(rd, { ...c, verified: v }); }

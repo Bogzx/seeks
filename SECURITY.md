@@ -14,7 +14,7 @@ In short:
 - **Reads are not policed at all.** The model can read `.env` and your secrets.
 - **Runtime-assembled paths and encoded payloads are explicitly out of scope.** A name built by `$(…)`, a `base64 -d | sh`, or a write performed inside a script the hook only sees the *filename* of are documented non-goals — not oversights.
 
-**If the goal or the codebase is untrusted, run the loop in a container.** That is the only guarantee that holds by construction rather than by policy.
+**If the goal or the codebase is untrusted, run the loop in a container** (`seeks run --container`: worktree, `.git` and `.seeks` mounted read-write, the plugin read-only, no host HOME, credentials by env name). That is the only guarantee that holds by construction rather than by policy.
 
 ## Reporting a vulnerability
 

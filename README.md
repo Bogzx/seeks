@@ -61,7 +61,7 @@ Known and deliberately un-closed — each one is a passing test asserting **allo
 
 The same goes for the grant file (`.seeks/control-grant.json`) and for seeks' own code: a runtime-assembled path reaches them too.
 
-None of this is fixable by reading a command string. That is the actual boundary, not a to-do list. **If the goal or the codebase is untrusted, run the loop in a container.** That is the only way the Bash gap closes by construction rather than by policy; **[`SEEKS_STRICT_BASH`](#strict-bash-mode)** is the next best thing, and the `Edit`-tool protection above is unaffected by any of it.
+None of this is fixable by reading a command string. That is the actual boundary, not a to-do list. **If the goal or the codebase is untrusted, run the loop in a container**: [`seeks run --container`](#--container-the-bash-tier-closed-by-construction). That is the only way the Bash gap closes by construction rather than by policy (for your machine; loop state inside the mounted `.seeks` stays policy-protected); **[`SEEKS_STRICT_BASH`](#strict-bash-mode)** is the next best thing, and the `Edit`-tool protection above is unaffected by any of it.
 
 ### Strict Bash mode
 
@@ -74,7 +74,7 @@ node bin/seeks.mjs status-set ui '{"strict_bash":true,"strict_bash_allow":["carg
 
 The default list is inspection tools (`ls cat grep rg find sed awk diff …`), the loop's working set (`cd mkdir cp mv touch`), and the toolchain (`git node npm npx pnpm yarn bun make just`). Add anything your checks need with `strict_bash_allow`; `/seeks:doctor` prints the active list.
 
-**Be clear about what this is: an allowlist, not a sandbox.** `node` and `npm` are on it because the loop needs a toolchain, and `node -e` can do anything a shell can. Strict mode stops the careless and the casual, not a determined adversary. **A container is still the only guarantee.**
+**Be clear about what this is: an allowlist, not a sandbox.** `node` and `npm` are on it because the loop needs a toolchain, and `node -e` can do anything a shell can. Strict mode stops the careless and the casual, not a determined adversary. **A container ([`seeks run --container`](#--container-the-bash-tier-closed-by-construction)) is still the only guarantee.**
 
 ## How a loop ends
 
@@ -165,11 +165,25 @@ seeks run fix-auth --budget 8h        # or: a loop you already made with /seeks:
 
 `seeks run` arms the loop, holds its lock and spawns the maker as a **separate `claude -p` process** in the loop's worktree. The child gets `--plugin-dir` pointing at this plugin, `--permission-mode bypassPermissions`, stream-json output and `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP=0`. The runner streams the gate's one-line banners as they happen. The Stop gate inside the child is still the only thing that can release `done`; the runner only reports what it decided, then disarms and unlocks on the way out.
 
-- **Exit code:** `0` done · `2` needs-human · `3` halted (stuck, max-iters, time budget) · `1` anything else (the maker crashed, `claude` not found, …). A CI job can gate on it.
+- **Exit code:** `0` done · `2` needs-human · `3` halted (stuck, max-iters, time budget) · `1` anything else (the maker crashed, `claude` not found, …). A CI job can gate on it. **`--json`** prints exactly one summary object on stdout (outcome, exit code, passes, cost, branch, session id, …) and moves the progress lines to stderr.
 - **Budgets:** `--budget` is enforced by the gate. The runner also kills a maker that never yields once the budget plus a grace period (10%, at least 2 minutes) has passed. `--max-iters`, `--max-budget-usd`, `--max-turns` and `--model` pass through.
 - **`--goal … --check …`** scaffolds a new loop without the `/seeks:new` interview. It creates the worktree on `seeks/<name>` and stores each `--check` as a done-condition (exit 0). Run state is ignored via `.git/info/exclude`; your `.gitignore` is not touched. At least one `--check` is required.
-- **`--strict`** sets `SEEKS_STRICT_BASH=1` for the maker. Because the maker runs with `bypassPermissions`, use it (or a container) for anything you don't fully trust. `--dry-run` prints the exact command and env without touching anything. `--claude <path>` or `SEEKS_CLAUDE_BIN` picks the binary.
+- **`--resume`**: if the maker process dies before the gate releases the loop, `seeks run <name> --resume` continues **the same conversation** (`claude --resume <session>`, recorded in hook-owned state) with the **same budget**. The iteration counter and the clock carry on instead of restarting.
+- **`--strict`** sets `SEEKS_STRICT_BASH=1` for the maker. `--dry-run` prints the exact command and env without touching anything. `--claude <path>` or `SEEKS_CLAUDE_BIN` picks the binary.
 - The child loads seeks from the checkout you ran `seeks run` from. If the marketplace copy is also enabled in your Claude Code config, its hooks may fire as well; disable one of the two for headless runs.
+
+### `--container`: the Bash tier, closed by construction
+
+The maker runs with `bypassPermissions`, and seeks' Bash guardrails are best-effort. `--container` removes the host from reach instead:
+
+```bash
+docker build -t seeks-maker docker/            # once: node + git + Claude Code (extend it with your toolchain)
+seeks run fix-auth --goal "…" --check "npm test" --container [--image seeks-maker] [--network bridge]
+```
+
+`seeks run` starts the maker in `docker run --rm` as **your uid:gid**. It mounts only what the loop needs, each at the same absolute path it has on the host: the loop's **worktree** (read-write), the repo's **`.git`** (read-write, since a worktree commits into it) and **`.seeks`** (read-write, loop state), and **the plugin read-only**. The guardrails can't be edited from inside, even by a Bash trick. **Your HOME is not mounted.** The container's HOME is `.seeks/run/<name>/container-home`, which persists so `--resume` works. Credentials pass **by name only** (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, Bedrock/Vertex/proxy vars); nothing else from your environment gets in. `--network` defaults to `bridge`, because the maker must reach the API; point it at a restricted network or proxy to narrow egress. A stuck maker is stopped with `docker kill`. POSIX hosts only (use WSL on Windows).
+
+What the container does *not* change: the `.git` and `.seeks` mounts are writable, so loop state and refs are protected by the same policy as without it. What it removes is everything else on your machine.
 
 ---
 
