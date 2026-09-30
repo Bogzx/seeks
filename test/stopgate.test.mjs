@@ -210,3 +210,33 @@ test('a dependency bump in package.json is free: green + acked releases done (ro
   assert.match(JSON.parse(run(oracleLoop({ edit: bump }).repo)).systemMessage, /✅ done/);
   assert.match(JSON.parse(run(oracleLoop({ edit: bump, manifestDiff:'whole' }).repo)).systemMessage, /needs-human/, 'oracle_manifest_diff "whole" is the fallback');
 });
+// ─── review 2026-09-30: green checks the oracle could not see ─────────────────────────
+// Each of these released ✅ done over a red `npm test` before the fix. Now each ends needs-human.
+function npmLoop(tamper){
+  const repo = makeTempRepo(); const g = (...a) => execFileSync('git', a, { cwd: repo, stdio: 'ignore' });
+  fs.mkdirSync(path.join(repo,'test'),{recursive:true});
+  fs.writeFileSync(path.join(repo,'test','a.test.js'),'process.exit(1)\n');
+  fs.writeFileSync(path.join(repo,'package.json'),'{"scripts":{"test":"node test/a.test.js"}}\n');
+  g('add','-A'); g('commit','-q','-m','i');
+  const base = execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim();
+  tamper(repo, g, base);
+  const rd = path.join(repo,'.seeks','run','np'); fs.mkdirSync(rd,{recursive:true});
+  const st = { loop:'np', armed:true, verifier_certified:true, conditions:[{ id:'tests', cmd:'npm test --silent' }], worktree_path:repo, base_sha:base,
+    open_items:0, max_iters:50, stuck_threshold:3, no_progress_count:0 };
+  st.oracle_ack_hash = oracleDiffHashFor(repo, base);
+  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify(st));
+  return JSON.parse(run(repo)).systemMessage;
+}
+const unix = process.platform !== 'win32';
+test('an .npmrc that swaps npm\'s script shell is oracle — gitignored or not', { skip: !unix && 'script-shell=/bin/true is POSIX' }, () => {
+  assert.match(npmLoop((r) => fs.writeFileSync(path.join(r,'.npmrc'),'script-shell=/bin/true\n')), /needs-human.*\.npmrc \(added\)/);
+  assert.match(npmLoop((r) => { fs.writeFileSync(path.join(r,'.gitignore'),'.npmrc\n'); fs.writeFileSync(path.join(r,'.npmrc'),'script-shell=/bin/true\n'); }),
+    /needs-human.*\.npmrc \(added\)/);
+});
+test('a test edit hidden with assume-unchanged / skip-worktree, or behind `git replace`, still counts', () => {
+  const relax = (r) => fs.writeFileSync(path.join(r,'test','a.test.js'),'process.exit(0)\n');
+  assert.match(npmLoop((r, g) => { relax(r); g('update-index','--assume-unchanged','test/a.test.js'); }), /needs-human.*test\/a\.test\.js \(modified\)/);
+  assert.match(npmLoop((r, g) => { g('update-index','--skip-worktree','test/a.test.js'); relax(r); }), /needs-human.*test\/a\.test\.js \(modified\)/);
+  assert.match(npmLoop((r, g, base) => { relax(r); g('commit','-qam','wip'); g('replace', base, 'HEAD'); }), /needs-human.*test\/a\.test\.js \(modified\)/);
+  assert.match(npmLoop(relax), /needs-human/, 'control: the plain edit');
+});

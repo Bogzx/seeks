@@ -108,3 +108,26 @@ test('a dependency bump in package.json is NOT a modified oracle; a scripts chan
   fs.writeFileSync(path.join(repo,'package.json'), JSON.stringify({ scripts:{ test:'true' }, dependencies:{ lodash:'^4.17.21' } }));
   assert.deepEqual(oracleModifiedPreexisting(repo, base), [{ file:'package.json', change:'modified' }]);
 });
+// ─── review 2026-09-30 ────────────────────────────────────────────────────────────────
+test('a NEW config-type oracle file counts (it can change what passes); a new test file stays free', () => {
+  const { repo, base } = fixture();
+  fs.writeFileSync(path.join(repo,'test','new.test.js'), 'assert(3===3)\n');
+  assert.deepEqual(oracleModifiedPreexisting(repo, base), []);
+  fs.writeFileSync(path.join(repo,'pytest.ini'), '[pytest]\naddopts = --collect-only\n');
+  fs.writeFileSync(path.join(repo,'conftest.py'), 'collect_ignore_glob = ["*"]\n');
+  fs.writeFileSync(path.join(repo,'.npmrc'), 'script-shell=/bin/true\n');
+  fs.writeFileSync(path.join(repo,'.gitignore'), '.npmrc\nnode_modules/\n');           // ignored does not hide it
+  fs.mkdirSync(path.join(repo,'node_modules','x'),{recursive:true}); fs.writeFileSync(path.join(repo,'node_modules','x','package.json'),'{}');
+  assert.deepEqual(oracleModifiedPreexisting(repo, base).map(o => `${o.file} ${o.change}`),
+    ['.npmrc added', 'conftest.py added', 'pytest.ini added'], 'an ignored node_modules/ is not walked');
+  for (const f of ['.npmrc','.yarnrc.yml','tsconfig.json','mypy.ini','.eslintrc.json','eslint.config.js','babel.config.js','.gitattributes'])
+    assert.ok(anyGlob(f, DEFAULT_ORACLE_GLOBS), f);
+});
+test('assume-unchanged and skip-worktree do not hide an edited oracle file', () => {
+  const { repo, base } = fixture();
+  fs.writeFileSync(path.join(repo,'test','a.test.js'), 'assert(true)\n'); git(repo,'update-index','--assume-unchanged','test/a.test.js');
+  git(repo,'update-index','--skip-worktree','test/b.test.js'); fs.rmSync(path.join(repo,'test','b.test.js'));
+  assert.equal(git(repo,'status','--porcelain').trim(), '', 'precondition: git status sees nothing');
+  assert.deepEqual(oracleModifiedPreexisting(repo, base), [{ file:'test/a.test.js', change:'modified' }, { file:'test/b.test.js', change:'deleted' }]);
+  assert.deepEqual(oracleDiffHash(repo, base).files, ['test/a.test.js', 'test/b.test.js'], 'and the advisory ack hash covers them too');
+});

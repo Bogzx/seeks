@@ -13,8 +13,22 @@ export const MANIFEST_GLOBS = [
   '**/pyproject.toml', '**/setup.cfg', '**/setup.py', '**/tox.ini', '**/noxfile.py', '**/pytest.ini',
   '**/jest.config.*', '**/vitest.config.*', '**/vitest.workspace.*', '**/karma.conf.*', '**/.mocharc*',
   '.github/workflows/**', '.gitlab-ci.yml', '.circleci/**', 'azure-pipelines.yml',
+  // …and the files that decide HOW a check runs without being a test or a script. `script-shell=/bin/true`
+  // in .npmrc turns `npm test` into `true`; a tsconfig/mypy/eslint/ruff config decides what a type or
+  // lint check reports; .gitattributes can route a file through a clean filter git then diffs instead.
+  '**/.npmrc', '**/.yarnrc', '**/.yarnrc.yml', '**/.pnpmfile.cjs', '**/bunfig.toml',
+  '**/.babelrc', '**/.babelrc.*', '**/babel.config.*', '**/tsconfig*.json', '**/.nycrc*', '**/.c8rc*',
+  '**/.eslintrc*', '**/eslint.config.*', '**/.coveragerc', '**/mypy.ini', '**/.mypy.ini', '**/ruff.toml', '**/.ruff.toml',
+  '**/.flake8', '**/.pylintrc', '**/.gitattributes',
 ];
 export const DEFAULT_ORACLE_GLOBS = [...TEST_GLOBS, ...MANIFEST_GLOBS];
+// Oracle files whose mere ADDITION can change what passes: a new pytest.ini with `addopts = --co`,
+// a .mocharc/vitest.config that matches no tests, a root conftest.py that skips everything, a new
+// .npmrc. A new test file only adds checks, so it stays free; a new config file is a change.
+export const CONFIG_GLOBS = [...MANIFEST_GLOBS, '**/conftest.py'];
+// Every git call here ignores `git replace` refs: `git replace <base> HEAD` made the base commit
+// read as the current one, so a committed test edit vanished from the diff.
+const GIT_ENV = () => ({ ...process.env, GIT_NO_REPLACE_OBJECTS: '1' });
 // What happens at release when a PRE-EXISTING oracle file was modified or deleted (status key
 // `oracle_modified_policy`). New oracle files (added tests) are always free.
 //   'needs_human' (default) — the loop ends needs-human with the file list: a model can't be the
@@ -35,12 +49,12 @@ export function porcelainPath(line){
   return (/[RC]/.test(xy) && f.includes(' -> ')) ? f.slice(f.indexOf(' -> ') + 4) : f;
 }
 export function oracleDiffHash(worktree, baseSha, globs = DEFAULT_ORACLE_GLOBS){
-  const git = (...args) => { try { return execFileSync('git',['-C',worktree,...args],{encoding:'utf8'}); } catch { return ''; } };
-  const names = new Set();
+  const git = (...args) => { try { return execFileSync('git',['-C',worktree,...args],{encoding:'utf8',env:GIT_ENV()}); } catch { return ''; } };
+  const names = new Set(indexHidden(worktree));
   if (baseSha) for (const l of git('diff','--name-only',baseSha).split('\n')){ const f=l.trim(); if (f) names.add(f); }
   for (const l of git('status','--porcelain').split('\n')){ const f = porcelainPath(l); if (f) names.add(f); }
   const files = [...names].filter(f => anyGlob(f, globs)).sort();
-  const parts = files.map(f => { let b=''; try { b = execFileSync('git',['-C',worktree,'hash-object',f],{encoding:'utf8'}).trim(); } catch { b='missing'; } return `${f}:${b}`; });
+  const parts = files.map(f => { let b=''; try { b = execFileSync('git',['-C',worktree,'hash-object',f],{encoding:'utf8',env:GIT_ENV()}).trim(); } catch { b='missing'; } return `${f}:${b}`; });
   const hash = crypto.createHash('sha1').update(parts.join('\n')).digest('hex').slice(0,16);
   return { files, hash };
 }
@@ -54,27 +68,50 @@ export function oracleGlobsPresent(worktree, globs = DEFAULT_ORACLE_GLOBS){
   for (const l of git('ls-files','--others','--exclude-standard').split('\n')){ const f = l.trim(); if (f) names.add(f); }
   return [...names].filter(f => anyGlob(f, globs)).length;
 }
+// Tracked files git has been told not to look at: `git update-index --assume-unchanged` (lowercase
+// tag in `ls-files -v`) or `--skip-worktree` (S). git diff/status then skip them, so an edited
+// test was invisible here while the runner ran the edited copy. They are always re-checked.
+export function indexHidden(worktree){
+  let out = ''; try { out = execFileSync('git',['-C',worktree,'ls-files','-v','-z'],{encoding:'utf8',env:GIT_ENV(),maxBuffer:64*1024*1024,stdio:['ignore','pipe','ignore']}); } catch { return []; }
+  return out.split('\0').filter(r => r.length > 2 && (/^[a-z]/.test(r) || r[0] === 'S')).map(r => r.slice(2));
+}
 // Oracle files that existed at baseSha and are now different or gone (committed, staged or in the
-// working tree). Additions are not listed: a new test can only add to the oracle. A rename shows as
-// a deletion of the old path. Returns null when there is no base to compare against.
+// working tree), plus config-type oracle files (CONFIG_GLOBS) that did NOT exist there. A new test
+// file is not listed: it can only add to the oracle. A rename shows as a deletion of the old path.
+// Returns null when there is no base to compare against.
 export function oracleModifiedPreexisting(worktree, baseSha, globs = DEFAULT_ORACLE_GLOBS, { manifestDiff = 'keys' } = {}){
   if (!baseSha) return null;
-  const git = (args, input) => { try { return execFileSync('git',['-C',worktree,...args],{encoding:'utf8',input,maxBuffer:64*1024*1024,stdio:['pipe','pipe','ignore']}); } catch { return null; } };
+  const git = (args, input) => { try { return execFileSync('git',['-C',worktree,...args],{encoding:'utf8',input,env:GIT_ENV(),maxBuffer:64*1024*1024,stdio:['pipe','pipe','ignore']}); } catch { return null; } };
   const diff = git(['diff','--name-only','--no-renames',baseSha]); if (diff == null) return null;
-  const cands = diff.split('\n').map(l => l.trim()).filter(f => f && anyGlob(f, globs));
-  if (!cands.length) return [];
-  const base = new Map();
-  for (const rec of (git(['ls-tree','-r','-z',baseSha,'--',...cands]) ?? '').split('\0')){
+  const lines = (t) => (t ?? '').split('\n').map(l => l.trim()).filter(Boolean);
+  const hidden = indexHidden(worktree);
+  const sparse = (git(['config','--bool','core.sparseCheckout']) ?? '').trim() === 'true';   // there, a skip-worktree file is legitimately absent
+  const cands = [...new Set([...lines(diff), ...hidden])].filter(f => anyGlob(f, globs));
+  // Untracked files too, ignored ones included (a new .npmrc is often gitignored — and the maker can
+  // add it to .gitignore). --directory collapses an ignored tree like node_modules/ to one entry.
+  const untracked = [...lines(git(['ls-files','--others','--exclude-standard'])),
+    ...lines(git(['ls-files','--others','--ignored','--exclude-standard','--directory'])).filter(f => !f.endsWith('/'))];
+  const addCands = [...new Set([...cands, ...untracked])].filter(f => anyGlob(f, globs) && anyGlob(f, CONFIG_GLOBS));
+  const base = new Map(); const q = [...new Set([...cands, ...addCands])];
+  if (!q.length) return [];
+  for (const rec of (git(['ls-tree','-r','-z',baseSha,'--',...q]) ?? '').split('\0')){
     const m = /^\d+ blob ([0-9a-f]+)\t(.+)$/.exec(rec); if (m) base.set(m[2], m[1]); }
   const out = [];
   for (const [f, blob] of base){
+    if (!cands.includes(f)) continue;
     let now = null; try { if (fs.statSync(path.join(worktree, f)).isFile()) now = (git(['hash-object','--',f]) ?? '').trim() || null; } catch {}
     if (now === blob) continue;
+    if (now == null && sparse && hidden.includes(f)) continue;
     if (now != null && manifestDiff !== 'whole' && manifestKind(f)){            // a manifest: only its oracle part counts
       const before = git(['cat-file','blob',blob]); let after = null; try { after = fs.readFileSync(path.join(worktree, f), 'utf8'); } catch {}
       if (before != null && after != null && !oracleChanged(f, before, after)) continue;
     }
     out.push({ file: f, change: now == null ? 'deleted' : 'modified' });
+  }
+  for (const f of addCands){
+    if (base.has(f)) continue;
+    try { if (!fs.statSync(path.join(worktree, f)).isFile()) continue; } catch { continue; }
+    out.push({ file: f, change: 'added' });
   }
   return out.sort((a, b) => a.file.localeCompare(b.file));
 }
