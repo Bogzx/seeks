@@ -1,8 +1,11 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
-import path from 'node:path'; import fs from 'node:fs'; import { fileURLToPath } from 'node:url';
+import path from 'node:path'; import fs from 'node:fs'; import os from 'node:os'; import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process'; import { makeTempRepo } from './helpers.mjs';
 const HOOK = fileURLToPath(new URL('../hooks/stop-gate.mjs', import.meta.url));
 const run = (cwd) => execFileSync('node',[HOOK],{ input: JSON.stringify({ cwd, session_id:'s1' }) }).toString().trim();
+// Done-conditions the gate runs itself. `node -e` behaves the same under sh and cmd.exe.
+const PASS = [{ id:'tests', cmd:'node -e "process.exit(0)"' }];
+const FAIL = [{ id:'tests', cmd:'node -e "console.log(\'2 failing\'); process.exit(1)"' }];
 test('bails when no .seeks', () => assert.equal(run(makeTempRepo()), ''));
 test('blocks for an armed loop containing cwd', () => {
   const repo = makeTempRepo(); const wt = path.join(repo,'.claude','worktrees','ui'); fs.mkdirSync(wt,{recursive:true});
@@ -37,7 +40,7 @@ test('a certify with an unaccounted oracle change is re-blocked', () => {
   const base = execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim();
   const rd = path.join(repo,'.seeks','run','ui'); fs.mkdirSync(rd,{recursive:true});
   fs.writeFileSync(path.join(repo,'test','a.test.js'),'2\n');    // a test changed after "certify"
-  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify({ loop:'ui', armed:true, done:true, verifier_certified:true,
+  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify({ loop:'ui', armed:true, verifier_certified:true, conditions:PASS,
     worktree_path:repo, base_sha:base, oracle_globs:['test/**'], oracle_ack_hash:'STALE',
     open_items:0, max_iters:50, stuck_threshold:3, no_progress_count:0, min_dry_sweeps:0 }));
   const out = JSON.parse(run(repo));
@@ -46,7 +49,7 @@ test('a certify with an unaccounted oracle change is re-blocked', () => {
 test('done with time budget remaining releases AND latches: later stops are silent', () => {
   const repo = makeTempRepo(); const wt = path.join(repo,'.claude','worktrees','dn'); fs.mkdirSync(wt,{recursive:true});
   const rd = path.join(repo,'.seeks','run','dn'); fs.mkdirSync(rd,{recursive:true});
-  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify({ loop:'dn', armed:true, done:true, verifier_certified:true,
+  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify({ loop:'dn', armed:true, verifier_certified:true, conditions:PASS,
     worktree_path:wt, open_items:0, max_iters:50, stuck_threshold:3, no_progress_count:0,
     started_at: Date.now(), time_budget_sec: 3600 }));   // plenty of budget left — done must still release now
   const first = JSON.parse(run(wt));
@@ -67,7 +70,7 @@ test('certify with NO oracle change releases done even without an ack (H2 fix)',
   const base = execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim();
   const rd = path.join(repo,'.seeks','run','ui'); fs.mkdirSync(rd,{recursive:true});
   // done + certified, the oracle is UNCHANGED, and the verifier never ran oracle-ack
-  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify({ loop:'ui', armed:true, done:true, verifier_certified:true,
+  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify({ loop:'ui', armed:true, verifier_certified:true, conditions:PASS,
     worktree_path:repo, base_sha:base, oracle_globs:['test/**'],
     open_items:0, max_iters:50, stuck_threshold:3, no_progress_count:0, min_dry_sweeps:0 }));
   const out = JSON.parse(run(repo));
@@ -88,4 +91,71 @@ test('the stop gate logs every verdict, so "why did it keep going?" is answerabl
   assert.equal(rows[0].action, 'block'); assert.equal(rows[0].rule, 'continue');
   assert.equal(rows[1].action, 'allow'); assert.equal(rows[1].rule, 'stop:stuck'); assert.equal(rows[1].stop_kind, 'stuck');
   assert.equal(rows[0].session, 's1');
+});
+
+// ─── the gate runs the done-conditions itself ─────────────────────────────────────────
+// The 2026-09-02 review's repro: the maker ran `seeks status-set ui '{"done":true,"verifier_certified":true}'`
+// and the gate printed ✅ done over a condition that exits 1. Now done is released only on the
+// hook's own run, and a failing run clears the certification and counts as a reject.
+function certifiedLoop(conditions, extra = {}){
+  const repo = makeTempRepo(); const wt = path.join(repo,'.claude','worktrees','g'); fs.mkdirSync(wt,{recursive:true});
+  const rd = path.join(repo,'.seeks','run','g'); fs.mkdirSync(rd,{recursive:true});
+  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify({ loop:'g', armed:true, done:true, verifier_certified:true, conditions,
+    worktree_path:wt, open_items:0, max_iters:50, stuck_threshold:3, no_progress_count:0, condition_reject_threshold:3, ...extra }));
+  return { repo, wt, rd, status: () => JSON.parse(fs.readFileSync(path.join(rd,'status.json'),'utf8')) };
+}
+test('a forged done + certified over a FAILING condition does not release, and the certify is cleared', () => {
+  const { wt, rd, status } = certifiedLoop(FAIL);
+  const out = JSON.parse(run(wt));
+  assert.equal(out.decision, 'block', 'the gate ran the condition and it exited 1');
+  assert.doesNotMatch(out.systemMessage, /✅ done/);
+  assert.match(out.hookSpecificOutput.additionalContext, /"tests" failed \(exit 1/);
+  assert.match(out.hookSpecificOutput.additionalContext, /2 failing/, 'the output tail reaches the maker');
+  const s = status();
+  assert.equal(s.verifier_certified, false); assert.equal(s.done, false);
+  assert.equal(s.condition_rejects.tests, 1); assert.match(s.last_verdict, /gate REJECT/);
+  const hs = JSON.parse(fs.readFileSync(path.join(rd,'hook-state.json'),'utf8'));
+  assert.equal(hs.verified.ok, false); assert.equal(hs.verified.results[0].exit, 1);
+  assert.equal(JSON.parse(run(wt)).decision, 'block', 'and the next stop does not release either');
+});
+test('re-certifying a red tree escalates to needs-human at the reject threshold (no endless loop)', () => {
+  const { wt, rd, status } = certifiedLoop(FAIL, { condition_reject_threshold:2 });
+  run(wt);                                                                      // reject 1
+  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify({ ...status(), verifier_certified:true }));
+  run(wt);                                                                      // reject 2 → needs_human
+  assert.equal(status().needs_human, true);
+  assert.match(JSON.parse(run(wt)).systemMessage, /needs-human/);
+});
+test('passing conditions release done, and only the gate writes done:true', () => {
+  const { wt, status } = certifiedLoop(PASS, { done:false });
+  const out = JSON.parse(run(wt));
+  assert.ok(!out.decision); assert.match(out.systemMessage, /✅ done/);
+  const s = status(); assert.equal(s.done, true); assert.ok(s.gate_verified_at);
+});
+test('a status.json that claims conditions_live:{ok:true} is ignored — the hook computes it', () => {
+  const { wt } = certifiedLoop(FAIL, { conditions_live:{ ok:true } });
+  assert.equal(JSON.parse(run(wt)).decision, 'block');
+});
+test('a tree the gate already verified is not re-run; any edit forces a fresh run', () => {
+  const repo = makeTempRepo(); fs.writeFileSync(path.join(repo,'a.js'),'1\n');
+  execFileSync('git',['add','-A'],{cwd:repo}); execFileSync('git',['commit','-q','-m','i'],{cwd:repo});
+  const counter = path.join(fs.mkdtempSync(path.join(os.tmpdir(),'seeks-ctr-')),'runs').split('\\').join('/');
+  const rd = path.join(repo,'.seeks','run','l3'); fs.mkdirSync(rd,{recursive:true});
+  const st = { loop:'l3', armed:true, verifier_certified:true, level:'L3', worktree_path:repo, open_items:0, max_iters:50, stuck_threshold:3,
+    no_progress_count:0, conditions:[{ id:'tests', cmd:`node -e "require('fs').appendFileSync('${counter}','x')"` }] };
+  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify(st));
+  const runs = () => { try { return fs.readFileSync(counter,'utf8').length; } catch { return 0; } };
+  let out = JSON.parse(run(repo));
+  assert.equal(out.decision, 'block'); assert.match(out.hookSpecificOutput.additionalContext, /seeks deliver/);
+  assert.equal(runs(), 1);
+  run(repo); assert.equal(runs(), 1, 'unchanged tree → cached verification, no re-run');
+  fs.writeFileSync(path.join(repo,'a.js'),'2\n');                            // the maker edits after the gate verified
+  run(repo); assert.equal(runs(), 2, 'edited tree → the gate runs the conditions again');
+  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify({ ...st, delivered:true }));
+  out = JSON.parse(run(repo));
+  assert.match(out.systemMessage, /✅ done/); assert.equal(runs(), 2, 'delivering does not change the tree');
+});
+test('a certified loop with no runnable condition ends in needs-human, not done', () => {
+  const { wt } = certifiedLoop([{ id:'judge', human_required:true }]);
+  assert.match(JSON.parse(run(wt)).systemMessage, /needs-human/);
 });

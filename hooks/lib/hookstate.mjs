@@ -4,7 +4,7 @@ function write(rd,obj){ const f=hp(rd); const t=`${f}.tmp.${process.pid}`; fs.wr
 export function readHookState(rd){ try { return JSON.parse(fs.readFileSync(hp(rd),'utf8')); } catch { return null; } }
 export function bumpFire(rd, sessionId, now){
   const c = readHookState(rd) ?? { stop_fires:0 };
-  const n = { stop_fires:(c.stop_fires||0)+1, last_heartbeat:now, session_id: sessionId ?? c.session_id ?? null };
+  const n = { ...c, stop_fires:(c.stop_fires||0)+1, last_heartbeat:now, session_id: sessionId ?? c.session_id ?? null };   // keep the gate's verification cache
   write(rd, n); return n;
 }
 export function seedHeartbeat(rd, now){ const c = readHookState(rd) ?? { stop_fires:0, session_id:null }; write(rd, { ...c, last_heartbeat:now }); }
@@ -15,3 +15,6 @@ export function staleHeartbeat(rd){ const c = readHookState(rd); if (c) write(rd
 // there is no CLI to set it (only reset-fires clears), so a maker can't self-release past the gates.
 export function latchRelease(rd, stopKind, now){ const c = readHookState(rd) ?? { stop_fires:0 }; write(rd, { ...c, released: stopKind, released_at: now }); }
 export function resetFires(rd){ const { released, released_at, ...c } = readHookState(rd) ?? {}; write(rd, { ...c, stop_fires:0 }); }
+// The gate's own verification of the done-conditions, keyed by the worktree fingerprint it ran on —
+// hook-owned like the rest of this file, so an unchanged tree is never re-run and never forged.
+export function recordVerification(rd, v){ const c = readHookState(rd) ?? { stop_fires:0 }; write(rd, { ...c, verified: v }); }
