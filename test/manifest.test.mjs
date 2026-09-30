@@ -43,10 +43,11 @@ branch = true
 [tool.ruff]
 line-length = 100
 `;
-test('pyproject.toml: [project] deps and unrelated tools are free; pytest/coverage/tox/nox/hatch-env tables are oracle', () => {
+test('pyproject.toml: [project] deps and unrelated tools are free; pytest/coverage/tox/nox/hatch-env/lint tables are oracle', () => {
   assert.equal(oracleChanged('pyproject.toml', PY, PY.replace('"requests>=2",', '"requests>=2",\n  "httpx>=0.27",')), false);
   assert.equal(oracleChanged('pyproject.toml', PY, PY.replace('version = "1.0"', 'version = "1.1"')), false);
-  assert.equal(oracleChanged('pyproject.toml', PY, PY.replace('line-length = 100', 'line-length = 120')), false);
+  assert.equal(oracleChanged('pyproject.toml', PY, PY.replace('line-length = 100', 'line-length = 120')), true, 'a lint config decides what `ruff check` reports (review 2026-09-30)');
+  assert.equal(oracleChanged('pyproject.toml', PY, PY + '\n[tool.bumpversion]\ncurrent_version = "1.1"\n'), false, 'an unrelated tool is free');
   assert.equal(oracleChanged('pyproject.toml', PY, PY.replace('addopts = "-q"', 'addopts = "-q -k \'not slow\'"')), true);
   assert.equal(oracleChanged('pyproject.toml', PY, PY.replace('  "tests",', '  "tests/unit",')), true, 'a continuation line of a multi-line array');
   assert.equal(oracleChanged('pyproject.toml', PY, PY.replace('branch = true', 'branch = false')), true);
@@ -65,4 +66,27 @@ test('other oracle files are compared whole', () => {
   assert.equal(manifestKind('Makefile'), null); assert.equal(manifestKind('a/b/package.json'), 'package.json');
   assert.equal(oracleChanged('Makefile', 'test:\n\tnpm test\n', 'test:\n\ttrue\n'), true);
   assert.equal(oracleChanged('tox.ini', 'a', 'a'), false);
+});
+// ─── review 2026-09-30: dependency-shaped edits that swap what the runner is ──────────
+test('package.json: overrides/resolutions/pnpm patches, babel, config and a redirected dependency are oracle', () => {
+  for (const after of [
+    { ...P, overrides:{ expect:'npm:always-pass@1' } }, { ...P, resolutions:{ 'jest-circus':'file:./fake' } },
+    { ...P, pnpm:{ patchedDependencies:{ 'expect@29.7.0':'patches/expect.patch' } } },
+    { ...P, babel:{ plugins:['./strip-asserts'] } }, { ...P, config:{ pattern:'none' } },
+    { ...P, devDependencies:{ jest:'npm:not-jest@1' } }, { ...P, devDependencies:{ jest:'file:./fakejest' } },
+    { ...P, devDependencies:{ jest:'github:someone/jest' } }, { ...P, devDependencies:{ jest:'someone/jest#main' } },
+    { ...P, dependencies:{ a:'^1.0.0', b:'link:../b' } },
+  ]) assert.equal(oracleChanged('package.json', pkg(P), pkg(after)), true, JSON.stringify(after));
+  for (const after of [{ ...P, devDependencies:{ jest:'^29.7.0' } }, { ...P, dependencies:{ a:'~1.2.0', b:'workspace:*', c:'latest' } }])
+    assert.equal(oracleChanged('package.json', pkg(P), pkg(after)), false, `still free: ${JSON.stringify(after)}`);
+});
+test('pyproject/setup.cfg: the type-checker and linter configs are oracle (a `mypy` clean check reads them)', () => {
+  const py = '[project]\nname="x"\n[tool.mypy]\nstrict = true\n[tool.ruff]\nselect = ["E"]\n';
+  for (const after of [py.replace('strict = true', 'ignore_errors = true'), py.replace('select = ["E"]', 'select = []'),
+    py + '[tool.pdm.scripts]\ntest = "true"\n', py + '[project.entry-points."pytest11"]\nfake = "fakeplugin"\n', py + '[tool.pyright]\ntypeCheckingMode = "off"\n'])
+    assert.equal(oracleChanged('pyproject.toml', py, after), true, after);
+  assert.equal(oracleChanged('pyproject.toml', py, py.replace('name="x"', 'name="x"\ndependencies = ["requests>=2"]')), false, 'dependencies stay free');
+  assert.equal(oracleChanged('setup.cfg', '[mypy]\nstrict=True\n', '[mypy]\nignore_errors=True\n'), true);
+  assert.equal(oracleChanged('setup.cfg', '[flake8]\nmax-line-length=88\n', '[flake8]\nextend-ignore=E,W,F\n'), true);
+  assert.equal(oracleChanged('setup.cfg', '[metadata]\nname=x\n', '[metadata]\nname=y\n'), false);
 });
