@@ -512,6 +512,34 @@ test('Bash cannot rewrite, run or remove the plugin\'s own code', () => {
     assert.equal(d.action, 'deny', `should deny: ${cmd}`); assert.equal(d.rule, 'plugin-dir', cmd);
   }
 });
+test('review 2026-09-30: the plugin root itself, and link/copy pivots onto it, are off limits too', () => {
+  for (const cmd of [
+    `ln -s ${ROOT} p && echo x >> p/hooks/lib/policy.mjs`,           // a symlink pivot with a STATIC target
+    `cp -rl ${ROOT} ../pp`, `cp -rs ${ROOT} ../ps`,                   // hard links / symlinks write through to the live files
+    `git -C ${ROOT} checkout -- .`, `git -C ${ROOT} apply /tmp/x.patch`, `cd ${ROOT} && git stash`,   // a git checkout of the plugin
+    `find ${ROOT} -name policy.mjs -delete`,                          // a deleted hook crashes → the hooks fail OPEN
+    `find ${ROOT.split('/').slice(0, -1).join('/') || '/'} -name policy.mjs -exec sed -i s/a/b/ {} +`,
+    `rsync -a /tmp/evil/ ${ROOT}/`, `tar -xf /tmp/e.tar -C ${ROOT}`,
+  ]){
+    for (const strictBash of [false, true]){
+      const d = decidePreTool('Bash', { command: cmd }, pctx({ strictBash }));
+      assert.equal(d.action, 'deny', `should deny (strict=${strictBash}): ${cmd}`);
+    }
+    assert.equal(decidePreTool('Bash', { command: cmd }, pctx()).rule, 'plugin-dir', cmd);
+  }
+  for (const cmd of [`find . -name '*.test.js' -delete`, `cp -r src /tmp/backup`, `ln -s ../shared lib/shared`, `find ~ -name '*.log'`])
+    assert.equal(decidePreTool('Bash', { command: cmd }, pctx()).action, 'allow', `should allow: ${cmd}`);
+});
+test('review 2026-09-30: starting another Claude Code from the loop is denied (its prompt would mint the user\'s grant)', () => {
+  for (const cmd of [`claude -p "/seeks:stop ui"`, `env -u CLAUDECODE claude -p x`, `timeout 30 ~/.local/bin/claude -p x`,
+    `npx @anthropic-ai/claude-code -p "/seeks:stop"`, `npx claude@latest -p x`, `pnpm dlx @anthropic-ai/claude-code`,
+    `node node_modules/@anthropic-ai/claude-code/cli.js -p x`, `bash -c "claude -p /seeks:stop"`]){
+    const d = decidePreTool('Bash', { command: cmd }, ctx('L2'));
+    assert.equal(d.action, 'deny', `should deny: ${cmd}`); assert.equal(d.rule, 'nested-claude', cmd);
+  }
+  for (const cmd of [`grep -rn claude src`, `echo claude`, `npm test`, `cat docs/claude.md`])
+    assert.equal(decidePreTool('Bash', { command: cmd }, ctx('L2')).action, 'allow', `should allow: ${cmd}`);
+});
 test('…under strict mode too, where sed itself is allowlisted', () => {
   const d = decidePreTool('Bash', { command:`sed -i 's/deny(/allow(/' ${ROOT}/hooks/lib/policy.mjs` }, pctx({ strictBash:true }));
   assert.equal(d.action, 'deny'); assert.equal(d.rule, 'plugin-dir');
