@@ -50,26 +50,44 @@ export const isLive = (status, hookState) => status?.armed === true && !hookStat
 export const GRANT_FILE = 'control-grant.json';
 export const GRANT_TTL_MS = 15 * 60 * 1000;
 const COMMAND_RE = /(?:^|<command-name>)\s*\/seeks:(start|stop|delete)\b/;
+const COMMAND_ARG_RE = /^\s*(?:<command-name>)?\s*\/seeks:(?:start|stop|delete)(?:<\/command-name>)?\s*(?:<command-args>)?\s*([A-Za-z0-9][A-Za-z0-9._-]*)?/;
 export function grantKindFromPrompt(prompt){
   const m = COMMAND_RE.exec(String(prompt ?? '').trimStart()); return m ? m[1] : null;
 }
+// The loop the user named (`/seeks:stop ui` → "ui"); null when they named none (the command then
+// picks the most recent loop, and so does the hook — see latestLoop).
+export function grantLoopFromPrompt(prompt){
+  const m = COMMAND_ARG_RE.exec(String(prompt ?? '')); return m && m[1] ? m[1] : null;
+}
+// A prompt this hook can't tell from a human's: a Claude Code the maker started from its own Bash
+// (`claude -p "/seeks:stop ui"`) submits one too, and its UserPromptSubmit hook used to mint the
+// grant. Claude Code sets these two itself for a non-interactive (-p / SDK) session, overriding
+// whatever the parent's env said (checked on 2.1.285), so such a session never mints. An absent
+// value (older Claude Code) keeps the old behaviour.
+export const nonInteractiveSession = (env = process.env) =>
+  /^sdk/i.test(String(env.CLAUDE_CODE_ENTRYPOINT ?? '')) || String(env.CLAUDE_CODE_SESSION_ATTENDED ?? '') === '0';
 export const grantPath = (sDir) => path.join(sDir, GRANT_FILE);
-export function issueGrant(sDir, { kind, session_id = null, now = Date.now(), ttlMs = GRANT_TTL_MS }){
-  const g = { nonce: crypto.randomUUID(), kind, session_id, issued_at: now, expires_at: now + ttlMs };
+export function issueGrant(sDir, { kind, loop = null, session_id = null, now = Date.now(), ttlMs = GRANT_TTL_MS }){
+  const g = { nonce: crypto.randomUUID(), kind, loop, session_id, issued_at: now, expires_at: now + ttlMs };
   const f = grantPath(sDir); const tmp = `${f}.tmp.${process.pid}`;
   fs.writeFileSync(tmp, JSON.stringify(g)); fs.renameSync(tmp, f); return g;
 }
-export function readGrant(sDir, now = Date.now()){
+// A grant is for the loop the user named: one typed for `/seeks:delete old` (or in another session,
+// for another loop in the same repo) must not unlock the loop this maker is running.
+const fits = (g, now, loop) => !!g && typeof g.nonce === 'string' && Number(g.expires_at) > now && (!g.loop || !loop || g.loop === loop);
+export function readGrant(sDir, now = Date.now(), { loop = null } = {}){
   if (!sDir) return null;
   let g; try { g = JSON.parse(fs.readFileSync(grantPath(sDir), 'utf8')); } catch { return null; }
-  return g && typeof g.nonce === 'string' && Number(g.expires_at) > now ? g : null;
+  return fits(g, now, loop) ? g : null;
 }
-// One-shot: rename first, so two concurrent consumers cannot both win the same grant.
-export function consumeGrant(sDir, now = Date.now()){
-  if (!sDir) return null;
+// One-shot: rename first, so two concurrent consumers cannot both win the same grant. A grant for a
+// different loop is left where it is.
+export function consumeGrant(sDir, now = Date.now(), { loop = null } = {}){
+  if (!sDir || !readGrant(sDir, now, { loop })) return null;
   const f = grantPath(sDir); const claimed = `${f}.consumed.${process.pid}`;
   try { fs.renameSync(f, claimed); } catch { return null; }
   let g = null; try { g = JSON.parse(fs.readFileSync(claimed, 'utf8')); } catch {}
+  if (g && !fits(g, now, loop) && Number(g.expires_at) > now){ try { fs.renameSync(claimed, f); } catch {} return null; }   // swapped in meanwhile: not ours
   try { fs.unlinkSync(claimed); } catch {}
-  return g && typeof g.nonce === 'string' && Number(g.expires_at) > now ? g : null;
+  return fits(g, now, loop) ? g : null;
 }

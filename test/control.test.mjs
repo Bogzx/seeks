@@ -1,7 +1,7 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url'; import fs from 'node:fs'; import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process'; import { makeTempRepo } from './helpers.mjs';
-import { splitPatch, isLive, grantKindFromPrompt, issueGrant, readGrant, consumeGrant, OWNED_KEYS } from '../hooks/lib/control.mjs';
+import { splitPatch, isLive, grantKindFromPrompt, grantLoopFromPrompt, nonInteractiveSession, issueGrant, readGrant, consumeGrant, OWNED_KEYS } from '../hooks/lib/control.mjs';
 const CLI = fileURLToPath(new URL('../bin/seeks.mjs', import.meta.url));
 const PROMPT_HOOK = fileURLToPath(new URL('../hooks/user-prompt.mjs', import.meta.url));
 const cli = (repo, ...a) => spawnSync('node', [CLI, ...a], { cwd: repo, encoding: 'utf8' });
@@ -9,7 +9,11 @@ const ok = (repo, ...a) => { const r = cli(repo, ...a); assert.equal(r.status, 0
 const refused = (repo, ...a) => { const r = cli(repo, ...a); assert.equal(r.status, 1, `${a.join(' ')} should be refused`); return r.stderr; };
 const statusOf = (repo, name = 'ui') => JSON.parse(ok(repo, 'status-get', name));
 const hsOf = (repo, name = 'ui') => { try { return JSON.parse(fs.readFileSync(path.join(repo,'.seeks','run',name,'hook-state.json'),'utf8')); } catch { return null; } };
-const userTypes = (repo, prompt) => execFileSync('node', [PROMPT_HOOK], { input: JSON.stringify({ cwd: repo, prompt, session_id:'u1' }) });
+// The hook reads how Claude Code launched it, so pin that: an interactive session (a human at the
+// prompt), whatever session these tests themselves happen to run under.
+const sessionEnv = (entry, attended) => { const e = { ...process.env }; delete e.CLAUDE_CODE_ENTRYPOINT; delete e.CLAUDE_CODE_SESSION_ATTENDED;
+  if (entry) e.CLAUDE_CODE_ENTRYPOINT = entry; if (attended != null) e.CLAUDE_CODE_SESSION_ATTENDED = attended; return e; };
+const userTypes = (repo, prompt, env = sessionEnv('cli', '1')) => execFileSync('node', [PROMPT_HOOK], { input: JSON.stringify({ cwd: repo, prompt, session_id:'u1' }), env });
 // A loop the gate is holding: armed, with a worktree, mid-run.
 function liveLoop(extra = {}){
   const repo = makeTempRepo(); const wt = path.join(repo,'.claude','worktrees','ui'); fs.mkdirSync(wt,{recursive:true});
@@ -133,4 +137,46 @@ test('the user-prompt hook does nothing outside a seeks project and never blocks
   const repo = makeTempRepo();
   assert.equal(userTypes(repo, '/seeks:stop').toString(), '');
   assert.ok(!fs.existsSync(path.join(repo,'.seeks')));
+});
+
+// ─── review 2026-09-30: who can mint a grant, and what it unlocks ────────────────────
+test('a non-interactive Claude Code (claude -p from the maker\'s Bash) never mints a grant', () => {
+  assert.equal(nonInteractiveSession({ CLAUDE_CODE_ENTRYPOINT:'sdk-cli' }), true);
+  assert.equal(nonInteractiveSession({ CLAUDE_CODE_ENTRYPOINT:'cli', CLAUDE_CODE_SESSION_ATTENDED:'0' }), true);
+  assert.equal(nonInteractiveSession({ CLAUDE_CODE_ENTRYPOINT:'cli', CLAUDE_CODE_SESSION_ATTENDED:'1' }), false);
+  assert.equal(nonInteractiveSession({}), false, 'an older Claude Code that sets neither keeps working');
+  const { repo } = liveLoop();
+  userTypes(repo, '/seeks:stop ui', sessionEnv('sdk-cli', '0'));
+  assert.equal(readGrant(path.join(repo,'.seeks')), null);
+  refused(repo, 'stop', 'ui');
+  assert.match(fs.readFileSync(path.join(repo,'.seeks','decisions.jsonl'),'utf8'), /"rule":"grant-refused:stop"/, 'the refusal is on the audit log');
+});
+test('grantLoopFromPrompt reads the loop the user named', () => {
+  assert.equal(grantLoopFromPrompt('/seeks:stop ui'), 'ui');
+  assert.equal(grantLoopFromPrompt('/seeks:start fix-auth --for 8h'), 'fix-auth');
+  assert.equal(grantLoopFromPrompt('/seeks:start --for 8h'), null);
+  assert.equal(grantLoopFromPrompt('/seeks:delete'), null);
+});
+test('a grant is for the loop the user named: /seeks:delete of another loop unlocks nothing here', () => {
+  const { repo } = liveLoop();
+  fs.writeFileSync(path.join(repo,'.seeks','run','ui','hook-state.json'), JSON.stringify({ stop_fires: 4 }));
+  userTypes(repo, '/seeks:delete old-loop');
+  refused(repo, 'reset-fires', 'ui'); refused(repo, 'budget-set', 'ui', '99999'); refused(repo, 'stop', 'ui'); refused(repo, 'gc', 'ui', '--force');
+  refused(repo, 'status-set', 'ui', '{"max_iters":999}');
+  assert.equal(hsOf(repo).stop_fires, 4); assert.equal(statusOf(repo).armed, true);
+  assert.ok(readGrant(path.join(repo,'.seeks')), 'and it is still there for old-loop');
+});
+test('a no-name /seeks:stop binds to the most recent loop, as the command resolves it', () => {
+  const { repo, wt } = liveLoop();
+  ok(repo, 'init', 'older', JSON.stringify({ loop:'older', worktree_path: path.join(wt, '..', 'older'), conditions:[{ id:'t', cmd:'true' }] }));
+  ok(repo, 'status-set', 'ui', '{"last_change":"touch"}');            // ui is now the most recently updated
+  userTypes(repo, '/seeks:stop');
+  assert.equal(readGrant(path.join(repo,'.seeks')).loop, 'ui');
+  ok(repo, 'stop', 'ui'); assert.equal(statusOf(repo).armed, false);
+});
+test('gc of a live loop spends the /seeks:delete grant', () => {
+  const { repo } = liveLoop();
+  userTypes(repo, '/seeks:delete ui');
+  ok(repo, 'gc', 'ui', '--force');
+  assert.equal(readGrant(path.join(repo,'.seeks')), null);
 });
