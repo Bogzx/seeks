@@ -5,3 +5,4 @@ node_modules/
 
 # development docs — kept local only (not published)
 /docs/
+/bench/results/
