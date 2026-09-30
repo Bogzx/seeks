@@ -122,6 +122,7 @@ Each pass prints one line:
 | `/seeks:why [name] [--denied]` | replay exactly why an action was allowed or denied (and whether a hook crashed) |
 | `/seeks:export [name]` | bundle a loop's state + transcript into a tarball (for bug reports) |
 | `/seeks:delete [name]` · `/seeks:doctor` | tear down · health check |
+| `seeks run <name> [--goal … --check …]` *(terminal)* | [headless](#headless-seeks-run): a separate `claude -p` maker, exit code = the gate's verdict |
 
 ## Levels — how much rope
 
@@ -151,6 +152,24 @@ A lighter tier costs *thoroughness*, not *safety*. The done-condition check, the
 ## Running deep / overnight
 
 Tell it how hard to dig at `/seeks:new` — *quick*, *thorough*, or *overnight* (or `/seeks:start --for 8h`). On an open-ended goal ("find every bug") seeks doesn't stop at the first green: it reviews the code through rotating **lenses** (concurrency, boundaries, security, timezones…) and keeps going deeper until it runs dry or the clock runs out. Near the deadline it **winds down** — commits, writes a summary — so you wake to `▸ ⏰ halt: time budget · 9 found · 2 open` and a branch to review, not a half-applied edit.
+
+## Headless: `seeks run`
+
+No interactive session needed. From a terminal in your repo:
+
+```bash
+git clone https://github.com/Bogzx/seeks ~/seeks && alias seeks='node ~/seeks/bin/seeks.mjs'   # once
+seeks run fix-auth --goal "fix the flaky auth tests" --check "npm test" --budget 2h --strict
+seeks run fix-auth --budget 8h        # or: a loop you already made with /seeks:new
+```
+
+`seeks run` arms the loop, holds its lock and spawns the maker as a **separate `claude -p` process** in the loop's worktree. The child gets `--plugin-dir` pointing at this plugin, `--permission-mode bypassPermissions`, stream-json output and `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP=0`. The runner streams the gate's one-line banners as they happen. The Stop gate inside the child is still the only thing that can release `done`; the runner only reports what it decided, then disarms and unlocks on the way out.
+
+- **Exit code:** `0` done · `2` needs-human · `3` halted (stuck, max-iters, time budget) · `1` anything else (the maker crashed, `claude` not found, …). A CI job can gate on it.
+- **Budgets:** `--budget` is enforced by the gate. The runner also kills a maker that never yields once the budget plus a grace period (10%, at least 2 minutes) has passed. `--max-iters`, `--max-budget-usd`, `--max-turns` and `--model` pass through.
+- **`--goal … --check …`** scaffolds a new loop without the `/seeks:new` interview. It creates the worktree on `seeks/<name>` and stores each `--check` as a done-condition (exit 0). Run state is ignored via `.git/info/exclude`; your `.gitignore` is not touched. At least one `--check` is required.
+- **`--strict`** sets `SEEKS_STRICT_BASH=1` for the maker. Because the maker runs with `bypassPermissions`, use it (or a container) for anything you don't fully trust. `--dry-run` prints the exact command and env without touching anything. `--claude <path>` or `SEEKS_CLAUDE_BIN` picks the binary.
+- The child loads seeks from the checkout you ran `seeks run` from. If the marketplace copy is also enabled in your Claude Code config, its hooks may fire as well; disable one of the two for headless runs.
 
 ---
 

@@ -60,6 +60,8 @@ const USAGE = `seeks <cmd> <name> [args]
   tier-get                      tier-set <light|balanced|all-out>   role <name>
   why <name> [--last N] [--denied] [--crashes] [--tool T] [--rule R] [--json]
   start <name> [--budget <dur>] [--max-iters N]    stop <name>    certify <name>
+  run <name> [--goal "<text>" --check "<cmd>"…] [--budget <dur>] [--max-iters N] [--strict] [--dry-run]
+                                headless: drive the loop with a separate "claude -p" maker; exit 0 only on done
   preflight                     --version`;
 // Single source of truth for the installed build: plugin.json ships with the plugin, so it is
 // what /seeks:doctor can actually attest to. smoke.test.mjs pins it equal to package.json.
@@ -216,6 +218,7 @@ switch (cmd) {
     const rd = rdOf(a[0]); const st = readStatus(rd); if (!st) die(`no loop "${a[0]}"`);   // re-runs the done-conditions itself
     writeStatusAtomic(rd, { ...st, verifier_certified:true, last_verdict:'pass (verifier) — gate re-runs the conditions at stop', certified_at: nowIso(), updated_at: nowIso() });
     out('ok'); break; }
+  case 'run': process.exitCode = await (await import('./run.mjs')).runCommand(a); break;   // headless driver (bin/run.mjs)
   case 'why': {             // replay the decision log: exactly why an action was allowed or denied
     const rd = rdOf(a[0]); const rest = a.slice(1);
     const flag = (n, d=null) => { const i = rest.indexOf(n); return i === -1 ? d : (rest[i+1] ?? d); };
