@@ -25,7 +25,9 @@ export const PROTECTED_KEYS = [
   'worktree_path','level','denylist','strict_bash','strict_bash_allow',           // what the policy enforces, and where
   'stuck_threshold','no_progress_count','condition_reject_threshold','condition_rejects',
   'lock_stale_ttl_sec','delivered',
-];
+  'condition_timeout_sec',                                                        // a tiny timeout turns a green check red → rejects → needs-human
+  'open_items','open_items_prev','dry_sweeps_prev','sweep_found_total','sweep_found_total_prev',   // the stuck guard's inputs: progress-tick/sweep-tick
+];                                                                                // write them directly; forged, they trip ⛔ stuck early or dodge it forever
 const TIGHTEN_ONLY = { needs_human: (v) => v === true, strict_bash: (v) => v === true };
 
 // Split a status-set patch into what may be written now and what is refused.

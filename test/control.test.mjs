@@ -73,7 +73,7 @@ test('the maker cannot self-certify, disarm, or erase its budgets through status
   assert.equal(s.armed, true); assert.equal(s.done, false); assert.equal(s.verifier_certified, false);
   assert.equal(s.max_iters, 5); assert.equal(s.time_budget_sec, 600); assert.equal(s.min_dry_sweeps, 2);
   assert.equal(s.conditions[0].cmd, 'npm test'); assert.equal(s.last_change, 'tried', 'the non-protected part of the patch still lands');
-  ok(repo, 'status-set', 'ui', '{"open_items":3,"last_change":"pass 2","needs_human":true}');   // normal loop bookkeeping is untouched
+  ok(repo, 'status-set', 'ui', '{"last_change":"pass 2","last_verdict":"REJECT (tests)","needs_human":true}');   // normal loop bookkeeping is untouched
 });
 test('reset-fires, budget-set, start-clock, base-record, re-init and gc are refused on a live loop', () => {
   const { repo } = liveLoop();
@@ -179,4 +179,13 @@ test('gc of a live loop spends the /seeks:delete grant', () => {
   userTypes(repo, '/seeks:delete ui');
   ok(repo, 'gc', 'ui', '--force');
   assert.equal(readGrant(path.join(repo,'.seeks')), null);
+});
+test('review 2026-09-30: a live maker cannot force an early exit through the timeout or the stuck guard\'s inputs', () => {
+  const { repo } = liveLoop();
+  for (const patch of [{ condition_timeout_sec:0.001 }, { open_items:0 }, { open_items_prev:0 }, { dry_sweeps_prev:99 },
+    { sweep_found_total:99 }, { sweep_found_total_prev:99 }]) assert.match(refused(repo, 'status-set', 'ui', JSON.stringify(patch)), /refused/, JSON.stringify(patch));
+  assert.equal(statusOf(repo).condition_timeout_sec, undefined);
+  ok(repo, 'backlog-add', 'ui', 'item'); ok(repo, 'progress-tick', 'ui');     // the sanctioned writers still move them
+  assert.equal(statusOf(repo).open_items, 1);
+  assert.deepEqual(splitPatch({ condition_timeout_sec: 900 }, { live:false }).refused, [], 'set it at /seeks:new, before arming');
 });
