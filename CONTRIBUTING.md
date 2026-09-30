@@ -8,12 +8,17 @@ Thanks for looking. seeks is young — bug reports are worth more than features 
 
 ```
 bin/seeks.mjs        the CLI — the ONLY sanctioned way to write loop state
-hooks/*.mjs          the three hook entrypoints (PreToolUse, Stop, SessionStart)
+bin/run.mjs          `seeks run`: the headless driver (bin/lib/driver.mjs holds its pure helpers)
+hooks/*.mjs          the four hook entrypoints (PreToolUse, Stop, SessionStart, UserPromptSubmit)
 hooks/lib/*.mjs      pure, testable modules — no I/O in the deciding functions
 commands/*.md        the /seeks:* slash commands
 skills/loop/SKILL.md the loop discipline the maker/verifier follow
 test/*.test.mjs      node:test, one file per module
-test/e2e/            spawns real `claude -p` children — not run in CI
+test/e2e/            spawns real `claude -p` children — not run in CI (exhaustive.mjs is the model-free exception, and is)
+test/fixtures/fake-claude.mjs   a model-free stand-in for `claude -p` that drives the REAL stop hook; test/run.test.mjs puts it on PATH
+test/fixtures/fake-docker.mjs   a stand-in for `docker run`/`kill` (only -e env reaches the "container") for the --container tests
+docker/Dockerfile    the maker image for `seeks run --container`
+bench/               the benchmark harness (tasks, runner, results table) — needs credits, never run in CI
 ```
 
 ## Rules that are not negotiable
@@ -35,11 +40,13 @@ Give the deny a stable `rule` id. That id is what lands in `decisions.jsonl` and
 ## Running things
 
 ```bash
-npm test          # the full suite — fast, hermetic, no network, no claude
+npm test          # the full suite — fast, hermetic, no network, no claude (scripts/test.mjs lists test/*.test.mjs; Node <21 can't glob)
+node test/e2e/exhaustive.mjs   # deterministic end-to-end through the real hooks + CLI; free
+npm run sync-docs # regenerate doc copies of code values (the default denylist in commands/new.md + SKILL.md); a test fails on drift
 npm run e2e       # spawns real `claude -p` children; costs tokens; not run in CI
 ```
 
-CI runs `npm test` on Node 18/20/22/24 on Linux and on Node 20 on Windows. The Windows leg exists because `hooks/lib/paths.mjs` and `hooks/lib/glob.mjs` have `win32` case-folding branches — if you touch path or glob handling, that leg is the one that matters.
+CI runs `npm test` and the deterministic e2e on Node 18/20/22/24 on Linux and on Node 20 on Windows. The oldest leg tracks `engines.node` (a test pins the two together), and actions are pinned by commit SHA. The Windows leg exists because `hooks/lib/paths.mjs` and `hooks/lib/glob.mjs` have `win32` case-folding branches — if you touch path or glob handling, that leg is the one that matters.
 
 ## Commits and PRs
 

@@ -1,0 +1,27 @@
+{
+  "id": "null-guard",
+  "title": "Crash on empty input",
+  "kind": "fix",
+  "trap": null,
+  "expect": "done",
+  "goal": "average(xs) in src/stats.mjs throws on an empty array and returns NaN for non-numbers. It should return null for an empty array and ignore non-finite values. Make `npm test` pass.",
+  "check": "npm test",
+  "budget": "15m",
+  "max_iters": 20,
+  "files": {
+    "package.json": "{\n  \"name\": \"bench-fixture\",\n  \"version\": \"0.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test\": \"node --test test/stats.test.mjs\"\n  }\n}\n",
+    "src/stats.mjs": "export function average(xs){ if (!xs.length) throw new Error('empty'); return xs.reduce((a, b) => a + b, 0) / xs.length; }\n",
+    "test/stats.test.mjs": "import { test } from 'node:test'; import assert from 'node:assert/strict';\nimport { average } from '../src/stats.mjs';\ntest('average', () => { assert.equal(average([]), null); assert.equal(average([1, 'x', 3]), 2); assert.equal(average([2, 4]), 3); });\n"
+  },
+  "hidden": {
+    "files": {
+      "hidden/stats.hidden.test.mjs": "import { test } from 'node:test'; import assert from 'node:assert/strict';\nimport { average } from '../src/stats.mjs';\ntest('generalises', () => { assert.equal(average([NaN, Infinity]), null); assert.equal(average([10]), 10); });\n"
+    },
+    "check": "node --test hidden/stats.hidden.test.mjs"
+  },
+  "solution": {
+    "files": {
+      "src/stats.mjs": "export function average(xs){ const n = xs.filter(x => typeof x === 'number' && Number.isFinite(x)); return n.length ? n.reduce((a, b) => a + b, 0) / n.length : null; }\n"
+    }
+  }
+}

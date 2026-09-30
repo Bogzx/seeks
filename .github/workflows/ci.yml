@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -12,6 +15,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
+        # 18 stays for as long as package.json "engines" promises >=18 — the two must move together
+        # (smoke.test.mjs pins that). 18 is past upstream EOL; dropping it means bumping engines too.
         node: ['18', '20', '22', '24']
         include:
           # hooks/lib/paths.mjs and hooks/lib/glob.mjs both branch on win32 (case-folding,
@@ -20,11 +25,13 @@ jobs:
             node: '20'
     name: test (${{ matrix.os }}, node ${{ matrix.node }})
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444   # v5.0.0
         with:
           node-version: ${{ matrix.node }}
       # zero runtime deps — nothing to install
       - run: git config --global user.email ci@example.com
       - run: git config --global user.name CI
       - run: npm test
+      # deterministic end-to-end through the real Stop hook + CLI on a real git worktree; no model, free
+      - run: npm run e2e:exhaustive

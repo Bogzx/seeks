@@ -55,7 +55,7 @@ export function readDecisionsMerged(dirs, opts = {}){
     .sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
   return limit > 0 ? rows.slice(-limit) : rows;
 }
-const MARK = { deny:'✖', block:'✖', crash:'💥' };
+const MARK = { deny:'✖', block:'✖', crash:'💥', warn:'⚠' };
 const subject = (r) => r.tool
   ? `${r.tool}${r.input?.command ? `  ${r.input.command}` : r.input?.file_path ? `  ${r.input.file_path}` : ''}`
   : (r.stop_kind ? `stop → ${r.stop_kind}` : (r.hook ?? '?'));
@@ -74,7 +74,7 @@ export function summarizeDecisions(rows){
   for (const r of rows){
     if (r.action === 'allow') t.allow++;
     else if (r.action === 'crash') t.crash++;
-    else t.deny++;
+    else if (r.action === 'deny' || r.action === 'block') t.deny++;   // a user-prompt `grant` is neither
     if (r.rule) t.rules[r.rule] = (t.rules[r.rule] ?? 0) + 1;
   }
   return t;

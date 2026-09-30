@@ -1,7 +1,7 @@
 {
   "name": "seeks",
   "version": "0.1.0",
-  "description": "Self-running, verifier-gated Claude Code loops — point it at one goal and walk away. A control plane of deterministic hooks keeps the maker honest; a separate verifier decides when it's really done.",
+  "description": "Self-running Claude Code loops — point it at one goal and leave it running. Deterministic hooks hold the budget and the guardrails; done is released only when the hook itself re-runs your checks green.",
   "license": "MIT",
   "author": "Bogdan Truta",
   "homepage": "https://github.com/Bogzx/seeks#readme",
@@ -11,7 +11,8 @@
   "type": "module",
   "engines": { "node": ">=18" },
   "scripts": {
-    "test": "node --test \"test/*.test.mjs\"",
+    "test": "node scripts/test.mjs",
+    "sync-docs": "node scripts/sync-docs.mjs",
     "e2e": "node test/e2e/run.mjs",
     "e2e:exhaustive": "node test/e2e/exhaustive.mjs"
   }
