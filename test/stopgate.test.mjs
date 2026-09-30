@@ -197,3 +197,11 @@ test('oracle_modified_policy "ack" is the documented opt-out: the ack is enough 
   const { repo } = oracleLoop({ policy:'ack', edit: (r) => fs.writeFileSync(path.join(r,'test','a.test.js'),'relaxed\n') });
   assert.match(JSON.parse(run(repo)).systemMessage, /✅ done/);
 });
+test('a condition runs outside any inherited node --test context (no false green)', async () => {
+  const { runConditions } = await import('../hooks/lib/verify.mjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(),'seeks-ntc-'));
+  fs.writeFileSync(path.join(dir,'red.test.mjs'), "import { test } from 'node:test'; test('red', () => { throw new Error('red'); });\n");
+  const r = runConditions([{ id:'t', cmd:'node --test red.test.mjs' }], dir);   // this test process HAS NODE_TEST_CONTEXT set
+  assert.ok(process.env.NODE_TEST_CONTEXT, 'precondition: running under node --test');
+  assert.equal(r.ok, false, 'a nested node --test must not report green to a parent that is not listening');
+});
