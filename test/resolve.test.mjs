@@ -5,7 +5,7 @@ import { primaryRoot, seeksDir, hasSeeksNearby, matchLoopByCwd } from '../hooks/
 import { latchRelease, resetFires } from '../hooks/lib/hookstate.mjs';
 test('primaryRoot resolves from a subdir', () => {
   const repo = makeTempRepo(); const sub = path.join(repo,'a','b'); fs.mkdirSync(sub,{recursive:true});
-  assert.equal(fs.realpathSync(primaryRoot(sub)), fs.realpathSync(repo));
+  assert.equal(fs.realpathSync.native(primaryRoot(sub)), fs.realpathSync.native(repo));
 });
 test('hasSeeksNearby true under .seeks, false otherwise', () => {
   const repo = makeTempRepo(); assert.equal(hasSeeksNearby(repo), false);
