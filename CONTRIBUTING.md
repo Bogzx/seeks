@@ -37,10 +37,11 @@ Give the deny a stable `rule` id. That id is what lands in `decisions.jsonl` and
 ```bash
 npm test          # the full suite — fast, hermetic, no network, no claude (scripts/test.mjs lists test/*.test.mjs; Node <21 can't glob)
 node test/e2e/exhaustive.mjs   # deterministic end-to-end through the real hooks + CLI; free
+npm run sync-docs # regenerate doc copies of code values (the default denylist in commands/new.md + SKILL.md); a test fails on drift
 npm run e2e       # spawns real `claude -p` children; costs tokens; not run in CI
 ```
 
-CI runs `npm test` on Node 18/20/22/24 on Linux and on Node 20 on Windows. The Windows leg exists because `hooks/lib/paths.mjs` and `hooks/lib/glob.mjs` have `win32` case-folding branches — if you touch path or glob handling, that leg is the one that matters.
+CI runs `npm test` and the deterministic e2e on Node 18/20/22/24 on Linux and on Node 20 on Windows. The oldest leg tracks `engines.node` (a test pins the two together), and actions are pinned by commit SHA. The Windows leg exists because `hooks/lib/paths.mjs` and `hooks/lib/glob.mjs` have `win32` case-folding branches — if you touch path or glob handling, that leg is the one that matters.
 
 ## Commits and PRs
 
