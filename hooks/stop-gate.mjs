@@ -3,7 +3,7 @@ import { hasSeeksNearby, seeksDir, matchLoopByCwd } from './lib/resolve.mjs';
 import { bumpFire, latchRelease, recordVerification } from './lib/hookstate.mjs';
 import { decide, readyForGateCheck } from './lib/gate.mjs';
 import { composeBanner } from './lib/banner.mjs';
-import { oracleDiffHash, oracleModifiedPreexisting, DEFAULT_ORACLE_GLOBS } from './lib/oracle.mjs';
+import { oracleDiffHash, oracleModifiedPreexisting, DEFAULT_ORACLE_GLOBS, manifestDiffMode } from './lib/oracle.mjs';
 import { appendDecision } from './lib/decisions.mjs';
 import { readStatus, writeStatusAtomic } from './lib/status.mjs';
 import { executableConditions, runConditions, treeFingerprint, applyConditionReject } from './lib/verify.mjs';
@@ -33,7 +33,7 @@ try {                                                       // fail-open: a hook
       // cheap. Any edit changes the fingerprint and forces a fresh run.
       let ran = null;
       if (readyForGateCheck(status)){
-        const om = oracleModifiedPreexisting(status.worktree_path, status.base_sha, status.oracle_globs ?? DEFAULT_ORACLE_GLOBS);
+        const om = oracleModifiedPreexisting(status.worktree_path, status.base_sha, status.oracle_globs ?? DEFAULT_ORACLE_GLOBS, { manifestDiff: manifestDiffMode(status) });
         if (om) status = { ...status, oracle_modified: om.map(o => `${o.file} (${o.change})`) };
         const fp = treeFingerprint(status.worktree_path);
         const v = hs.verified;

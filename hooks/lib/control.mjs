@@ -21,7 +21,7 @@ export const PROTECTED_KEYS = [
   'conditions','executable_condition_count',                                      // what "done" means
   'min_dry_sweeps','dry_sweeps','dry_lenses','exhaustive','min_dry_depth_rounds',
   'dry_depth_rounds','depth','sweep_lenses',                                      // the sweep bar
-  'oracle_globs','oracle_ack_hash','oracle_modified_policy','base_ref','base_sha', // oracle accounting
+  'oracle_globs','oracle_ack_hash','oracle_modified_policy','oracle_manifest_diff','base_ref','base_sha', // oracle accounting
   'worktree_path','level','denylist','strict_bash','strict_bash_allow',           // what the policy enforces, and where
   'stuck_threshold','no_progress_count','condition_reject_threshold','condition_rejects',
   'lock_stale_ttl_sec','delivered',

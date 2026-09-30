@@ -61,7 +61,7 @@ test('the maker cannot self-certify, disarm, or erase its budgets through status
   const { repo } = liveLoop();
   for (const patch of [{ done:true, verifier_certified:true }, { armed:false }, { max_iters:999999, time_budget_sec:null },
     { dry_sweeps:99 }, { min_dry_sweeps:0 }, { conditions:[{ id:'t', cmd:'true' }] }, { oracle_globs:[] }, { worktree_path:'/elsewhere' },
-    { needs_human:false }, { level:'L3' }, { strict_bash_allow:['python3'] }, { oracle_modified_policy:'ack' }, { oracle_modified:[] }]){
+    { needs_human:false }, { level:'L3' }, { strict_bash_allow:['python3'] }, { oracle_modified_policy:'ack' }, { oracle_modified:[] }, { oracle_manifest_diff:'keys' }]){
     const err = refused(repo, 'status-set', 'ui', JSON.stringify({ ...patch, last_change:'tried' }));
     assert.match(err, /refused/);
   }

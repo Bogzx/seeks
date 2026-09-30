@@ -161,7 +161,7 @@ test('a certified loop with no runnable condition ends in needs-human, not done'
 });
 
 // ─── a green check on a changed oracle ends with a human (2026-09-30 round 2) ──────────
-function oracleLoop({ policy, edit }){
+function oracleLoop({ policy, edit, manifestDiff }){
   const repo = makeTempRepo();
   fs.mkdirSync(path.join(repo,'test'),{recursive:true});
   fs.writeFileSync(path.join(repo,'test','a.test.js'),'1\n');
@@ -171,7 +171,7 @@ function oracleLoop({ policy, edit }){
   edit(repo);
   const rd = path.join(repo,'.seeks','run','om'); fs.mkdirSync(rd,{recursive:true});
   const st = { loop:'om', armed:true, verifier_certified:true, conditions:PASS, worktree_path:repo, base_sha:base,
-    open_items:0, max_iters:50, stuck_threshold:3, no_progress_count:0, ...(policy ? { oracle_modified_policy: policy } : {}) };
+    open_items:0, max_iters:50, stuck_threshold:3, no_progress_count:0, ...(policy ? { oracle_modified_policy: policy } : {}), ...(manifestDiff ? { oracle_manifest_diff: manifestDiff } : {}) };
   st.oracle_ack_hash = oracleDiffHashFor(repo, base);              // the (advisory) ack is current — this is not the stale-ack path
   fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify(st));
   return { repo, rd, status: () => JSON.parse(fs.readFileSync(path.join(rd,'status.json'),'utf8')) };
@@ -204,4 +204,9 @@ test('a condition runs outside any inherited node --test context (no false green
   const r = runConditions([{ id:'t', cmd:'node --test red.test.mjs' }], dir);   // this test process HAS NODE_TEST_CONTEXT set
   assert.ok(process.env.NODE_TEST_CONTEXT, 'precondition: running under node --test');
   assert.equal(r.ok, false, 'a nested node --test must not report green to a parent that is not listening');
+});
+test('a dependency bump in package.json is free: green + acked releases done (round 3)', () => {
+  const bump = (r) => fs.writeFileSync(path.join(r,'package.json'),'{"scripts":{"test":"node --test"},"dependencies":{"left-pad":"^1.3.0"}}\n');
+  assert.match(JSON.parse(run(oracleLoop({ edit: bump }).repo)).systemMessage, /✅ done/);
+  assert.match(JSON.parse(run(oracleLoop({ edit: bump, manifestDiff:'whole' }).repo)).systemMessage, /needs-human/, 'oracle_manifest_diff "whole" is the fallback');
 });
