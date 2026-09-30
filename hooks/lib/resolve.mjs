@@ -23,3 +23,13 @@ export function matchLoopByCwd(sDir, cwd, platform = process.platform){
   }
   return null;
 }
+// The most recently updated loop — what a no-name /seeks:start|stop picks (seeks latest), and so
+// what the UserPromptSubmit hook binds that command's grant to.
+export function latestLoop(sDir){
+  let best = null, bestT = '';
+  try { for (const name of fs.readdirSync(path.join(sDir,'run'))){
+    let st = null; try { st = readStatus(path.join(sDir,'run',name)); } catch {}
+    const t = (st && st.updated_at) || '';
+    if (st && t >= bestT){ bestT = t; best = name; } } } catch {}
+  return best;
+}

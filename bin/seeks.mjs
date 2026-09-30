@@ -1,6 +1,6 @@
 import fs from 'node:fs'; import path from 'node:path'; import { execFileSync } from 'node:child_process';
 import { readStatus, writeStatusAtomic } from '../hooks/lib/status.mjs';
-import { runDir, primaryRoot, seeksDir } from '../hooks/lib/resolve.mjs';
+import { runDir, primaryRoot, seeksDir, latestLoop } from '../hooks/lib/resolve.mjs';
 import { acquire, release, isHeld } from '../hooks/lib/lock.mjs';
 import { readHookState, resetFires } from '../hooks/lib/hookstate.mjs';
 import { composeBanner } from '../hooks/lib/banner.mjs';
@@ -32,8 +32,8 @@ const liveOf = (rd) => { const st = readStatus(rd); return { st, live: isLive(st
 // typed /seeks:start|stop|delete (see hooks/lib/control.mjs). consume=true spends it.
 const GRANT_HINT = 'This changes the brakes of a running loop, which only the user can do: it needs the one-shot grant the UserPromptSubmit hook issues when the user types /seeks:start, /seeks:stop or /seeks:delete. The maker must not work around this — end the pass and let the gate decide.';
 function authorize(rd, what, { consume = false } = {}){
-  const { live } = liveOf(rd); const sd = seeksDir();
-  const g = consume ? consumeGrant(sd) : readGrant(sd);
+  const { live } = liveOf(rd); const sd = seeksDir(); const loop = path.basename(rd);
+  const g = consume ? consumeGrant(sd, Date.now(), { loop }) : readGrant(sd, Date.now(), { loop });
   if (!live || g) return g;
   die(`refusing to ${what} on live loop "${path.basename(rd)}". ${GRANT_HINT}`);
 }
@@ -88,7 +88,7 @@ switch (cmd) {
     fs.mkdirSync(path.join(rd,'verify'),{recursive:true}); out('ok'); break; }  // F17: confirm success, no status-get round-trip
   case 'status-get': out(readStatus(rdOf(a[0])) ?? {}); break;
   case 'status-set': { const rd = rdOf(a[0]); const cur = readStatus(rd) ?? {};
-    const { allowed, refused } = splitPatch(JSON.parse(a[1]), { live: isLive(cur, readHookState(rd)), granted: !!readGrant(seeksDir()) });
+    const { allowed, refused } = splitPatch(JSON.parse(a[1]), { live: isLive(cur, readHookState(rd)), granted: !!readGrant(seeksDir(), Date.now(), { loop: a[0] }) });
     writeStatusAtomic(rd, { ...cur, ...allowed, updated_at: nowIso() });
     if (refused.length) die(`status-set refused ${refused.join(', ')} (applied: ${Object.keys(allowed).join(', ') || 'nothing'}). `
       + 'armed → seeks start/stop · verifier_certified → seeks certify · done → only the Stop gate, after it ran the done-conditions itself. '
@@ -139,20 +139,18 @@ switch (cmd) {
     writeStatusAtomic(rd, { ...s, started_at: Date.now(), updated_at: new Date().toISOString() }); out('ok'); break; }
   case 'gc': { const name = a[0]; const force = a.includes('--force'); const root = primaryRoot(); const rd = rdOf(name);
     let live = false; try { live = liveOf(rd).live; } catch {}                // a corrupt status.json can't be read as live
-    if (live && !readGrant(seeksDir())) die(`refusing to gc live loop "${name}" (not even with --force). ${GRANT_HINT}`);
+    if (live && !readGrant(seeksDir(), Date.now(), { loop: name })) die(`refusing to gc live loop "${name}" (not even with --force). ${GRANT_HINT}`);
     if (!force) {                                                                   // --force skips the HEARTBEAT check — must work even when status.json is corrupt (the stuck-loop case --force exists for); it never overrides the live-loop grant check above
       let ttl = 600000; try { ttl = ((readStatus(rd)?.lock_stale_ttl_sec) ?? 600) * 1000; } catch {}   // a corrupt status.json must not throw and block teardown
       if (isHeld(rd, Date.now(), ttl)) { process.stderr.write(`[seeks] refusing to gc "${name}": loop heartbeat is fresh (running). Run /seeks:stop first, or pass --force.`); process.exit(1); }
     }
+    if (live) consumeGrant(seeksDir(), Date.now(), { loop: name });              // one delete per /seeks:delete (after the heartbeat check, so a refusal there leaves it for stop)
     try { execFileSync('git',['-C',root,'worktree','remove','--force',`.claude/worktrees/${name}`]); } catch {}
     try { execFileSync('git',['-C',root,'branch','-D',`seeks/${name}`]); } catch {}
     fs.rmSync(rd, { recursive:true, force:true }); break; }
   case 'banner': { const rd = rdOf(a[0]); const hs = readHookState(rd) ?? { stop_fires:0 };
     out(composeBanner(readStatus(rd) ?? {}, { action:a[1], stopKind:a[2] ?? null }, hs.stop_fires, { color: !!process.env.SEEKS_BANNER_COLOR })); break; }
-  case 'latest': { const sd = seeksDir(); let best = null, bestT = '';   // most-recently-updated loop (for no-arg /seeks:start)
-    try { for (const name of fs.readdirSync(path.join(sd,'run'))) { const st = readStatus(path.join(sd,'run',name)); const t = (st && st.updated_at) || '';
-      if (st && t >= bestT) { bestT = t; best = name; } } } catch {}
-    if (best) out(best); break; }
+  case 'latest': { const best = latestLoop(seeksDir()); if (best) out(best); break; }   // most-recently-updated loop (for no-arg /seeks:start)
   case 'tier-get': { let tier = null;   // global per-user usage tier (~/.claude/seeks.json); resolves to its preset
     try { tier = JSON.parse(fs.readFileSync(userCfg(),'utf8')).tier; } catch {}
     if (!tier || !TIERS[tier]) { out('none'); break; }
@@ -201,7 +199,7 @@ switch (cmd) {
     if (!st) die(`no loop "${name}" — /seeks:new first`);
     const flag = (n) => { const i = a.indexOf(n); return i === -1 ? null : a[i+1]; };
     const overlap = overlappingLiveLoops(name, st.worktree_path);
-    const g = consumeGrant(seeksDir());                        // spend any grant: it was for this start
+    const g = consumeGrant(seeksDir(), Date.now(), { loop: name });   // spend the grant the user typed for THIS loop
     if ((liveOf(rd).live || overlap.length) && !g)
       die(`refusing to start "${name}": ${overlap.length ? `live loop(s) ${overlap.join(', ')} already gate this worktree` : 'it is already live'}. ${GRANT_HINT}`);
     // --resume (used by `seeks run --resume` after a crash): re-arm WITHOUT a fresh budget — the
