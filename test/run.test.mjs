@@ -51,7 +51,7 @@ test('--goal scaffolds a loop, drives a separate claude -p maker with the right 
   assert.match(res.out, /▸ fix · pass 1 · ✅ done/, 'the gate\'s banner is streamed');
   assert.match(res.out, /fix · done · 1 passes/);
   const wt = path.join(r,'.claude','worktrees','fix');
-  assert.equal(fs.realpathSync(res.call.cwd), fs.realpathSync(wt), 'the maker runs IN the loop worktree');
+  assert.equal(fs.realpathSync.native(res.call.cwd), fs.realpathSync.native(wt), 'the maker runs IN the loop worktree');
   const a = res.call.argv;
   assert.equal(a[a.indexOf('--plugin-dir') + 1].replace(/[\\/]+$/, ''), ROOT);
   assert.equal(a[a.indexOf('--permission-mode') + 1], 'bypassPermissions');
@@ -128,7 +128,7 @@ function dockerRun(r, args, opts = {}){
   return { ...res, docker };
 }
 const posix = { skip: process.platform === 'win32' ? '--container is POSIX-only (it refuses on win32)' : false };
-test('containerArgs: same-path mounts, plugin read-only, no host HOME, credentials by name only', () => {
+test('containerArgs: same-path mounts, plugin read-only, no host HOME, credentials by name only', posix, () => {
   const a = containerArgs({ name:'x', containerName:'seeks-x-1', worktree:'/r/.claude/worktrees/x', root:'/r', pluginRoot:'/p/seeks',
     home:'/r/.seeks/run/x/container-home', image:'img', network:'none', env:{ CLAUDE_CODE_STOP_HOOK_BLOCK_CAP:'0' }, claudeArgv:['claude','-p','go'], uid:'1000:1000' });
   const vols = a.flatMap((t, i) => t === '-v' ? [a[i + 1]] : []);
