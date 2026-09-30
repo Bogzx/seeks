@@ -15,7 +15,7 @@ import { preflightAssess } from '../hooks/lib/detect.mjs';
 import { readDecisionsMerged, formatDecisions, summarizeDecisions } from '../hooks/lib/decisions.mjs';
 import { strictBashEnabled, STRICT_BASH_ALLOW } from '../hooks/lib/policy.mjs';
 import { splitPatch, isLive, readGrant, consumeGrant } from '../hooks/lib/control.mjs';
-import { applyConditionReject } from '../hooks/lib/verify.mjs';
+import { applyConditionReject, treeFingerprint } from '../hooks/lib/verify.mjs';
 import { isInside } from '../hooks/lib/paths.mjs';
 import { parseDuration } from '../hooks/lib/budget.mjs';
 const [cmd, ...a] = process.argv.slice(2);
@@ -181,6 +181,14 @@ switch (cmd) {
     writeStatusAtomic(rd, { ...s, oracle_ack_hash: r.hash, oracle_changed_count: r.files.length, updated_at: new Date().toISOString() }); out('ok'); break; }
   case 'deliver': { const rd = rdOf(a[0]); const s = readStatus(rd) ?? {}; const root = primaryRoot();   // L3 autonomous delivery: push + open PR (never merges); degrades pr→push→local
     if (String(s.level || 'L2').toUpperCase() !== 'L3'){ process.stderr.write('deliver is L3-only'); process.exit(1); }
+    // While the loop runs, only a tree the Stop gate itself verified (same fingerprint it ran the
+    // done-conditions on) may leave the machine. Once the loop is released or disarmed, delivery is
+    // the user's call (/seeks:harvest), so it is not gated.
+    if (isLive(s, readHookState(rd))){
+      const v = readHookState(rd)?.verified; const fp = treeFingerprint(s.worktree_path);
+      if (!(v && v.ok === true && fp && (v.tree === fp || v.tree_after === fp)))
+        die(`refusing to deliver "${a[0]}": the Stop gate has not verified this tree (${!v ? 'it has not run the done-conditions yet' : !v.ok ? 'its last run failed' : 'the tree changed since it verified'}). Certify with the verifier, end your turn, and deliver when the gate's block reason asks for it.`);
+    }
     let body = 'Automated by seeks. Review the diff; the merge is yours.';
     try { const sm = fs.readFileSync(path.join(rd,'summary.md'),'utf8'); if (sm.trim()) body = sm; } catch {}
     const r = deliver(a[0], { root, branch:`seeks/${a[0]}`, base_ref: s.base_ref, title:`seeks: ${a[0]}`, body });
