@@ -29,8 +29,25 @@ export const CONFIG_GLOBS = [...MANIFEST_GLOBS, '**/conftest.py'];
 // Every git call here ignores `git replace` refs: `git replace <base> HEAD` made the base commit
 // read as the current one, so a committed test edit vanished from the diff.
 const GIT_ENV = () => ({ ...process.env, GIT_NO_REPLACE_OBJECTS: '1' });
-// What happens at release when a PRE-EXISTING oracle file was modified or deleted (status key
-// `oracle_modified_policy`). New oracle files (added tests) are always free.
+// …and no clean filter or fsmonitor the maker configured. `git config filter.x.clean 'git show
+// <base>:%f'` plus `test/* filter=x` in .git/info/attributes made an edited test hash as its base
+// blob, so git diff reported nothing. Every configured filter driver is blanked for these calls
+// (an empty command is a pass-through), except LFS, pinned to its standard command. Passed as
+// GIT_CONFIG_KEY_n/VALUE_n (git ≥ 2.31), not `-c k=v`, because a driver name may contain '='.
+const LFS_STD = { clean: 'git-lfs clean -- %f', process: 'git-lfs filter-process', smudge: 'git-lfs smudge -- %f' };
+export function guardedGitEnv(worktree){
+  const kv = [['core.fsmonitor', 'false']];
+  let cfg = ''; try { cfg = execFileSync('git',['-C',worktree,'config','-z','--get-regexp','^filter\\..*\\.(clean|process|smudge)$'],{encoding:'utf8',env:GIT_ENV(),stdio:['ignore','pipe','ignore']}); } catch {}
+  for (const rec of cfg.split('\0')){
+    const key = rec.split('\n')[0]; const m = /^filter\.([\s\S]+)\.(clean|process|smudge)$/i.exec(key); if (!m) continue;
+    kv.push([key, m[1].toLowerCase() === 'lfs' ? LFS_STD[m[2].toLowerCase()] : '']);
+  }
+  const env = { ...GIT_ENV(), GIT_CONFIG_COUNT: String(kv.length) };
+  kv.forEach(([k, v], i) => { env[`GIT_CONFIG_KEY_${i}`] = k; env[`GIT_CONFIG_VALUE_${i}`] = v; });
+  return env;
+}
+// What happens at release when a PRE-EXISTING oracle file was modified or deleted, or a config-type
+// one was added (status key `oracle_modified_policy`). New test files are always free.
 //   'needs_human' (default) — the loop ends needs-human with the file list: a model can't be the
 //                             one to decide a weakened check is fine, and the maker can call
 //                             `seeks oracle-ack` itself.
@@ -49,12 +66,13 @@ export function porcelainPath(line){
   return (/[RC]/.test(xy) && f.includes(' -> ')) ? f.slice(f.indexOf(' -> ') + 4) : f;
 }
 export function oracleDiffHash(worktree, baseSha, globs = DEFAULT_ORACLE_GLOBS){
-  const git = (...args) => { try { return execFileSync('git',['-C',worktree,...args],{encoding:'utf8',env:GIT_ENV()}); } catch { return ''; } };
+  const env = guardedGitEnv(worktree);
+  const git = (...args) => { try { return execFileSync('git',['-C',worktree,...args],{encoding:'utf8',env}); } catch { return ''; } };
   const names = new Set(indexHidden(worktree));
   if (baseSha) for (const l of git('diff','--name-only',baseSha).split('\n')){ const f=l.trim(); if (f) names.add(f); }
   for (const l of git('status','--porcelain').split('\n')){ const f = porcelainPath(l); if (f) names.add(f); }
   const files = [...names].filter(f => anyGlob(f, globs)).sort();
-  const parts = files.map(f => { let b=''; try { b = execFileSync('git',['-C',worktree,'hash-object',f],{encoding:'utf8',env:GIT_ENV()}).trim(); } catch { b='missing'; } return `${f}:${b}`; });
+  const parts = files.map(f => { let b=''; try { b = execFileSync('git',['-C',worktree,'hash-object',f],{encoding:'utf8',env}).trim(); } catch { b='missing'; } return `${f}:${b}`; });
   const hash = crypto.createHash('sha1').update(parts.join('\n')).digest('hex').slice(0,16);
   return { files, hash };
 }
@@ -72,7 +90,7 @@ export function oracleGlobsPresent(worktree, globs = DEFAULT_ORACLE_GLOBS){
 // tag in `ls-files -v`) or `--skip-worktree` (S). git diff/status then skip them, so an edited
 // test was invisible here while the runner ran the edited copy. They are always re-checked.
 export function indexHidden(worktree){
-  let out = ''; try { out = execFileSync('git',['-C',worktree,'ls-files','-v','-z'],{encoding:'utf8',env:GIT_ENV(),maxBuffer:64*1024*1024,stdio:['ignore','pipe','ignore']}); } catch { return []; }
+  let out = ''; try { out = execFileSync('git',['-C',worktree,'ls-files','-v','-z'],{encoding:'utf8',env:guardedGitEnv(worktree),maxBuffer:64*1024*1024,stdio:['ignore','pipe','ignore']}); } catch { return []; }
   return out.split('\0').filter(r => r.length > 2 && (/^[a-z]/.test(r) || r[0] === 'S')).map(r => r.slice(2));
 }
 // Oracle files that existed at baseSha and are now different or gone (committed, staged or in the
@@ -81,7 +99,8 @@ export function indexHidden(worktree){
 // Returns null when there is no base to compare against.
 export function oracleModifiedPreexisting(worktree, baseSha, globs = DEFAULT_ORACLE_GLOBS, { manifestDiff = 'keys' } = {}){
   if (!baseSha) return null;
-  const git = (args, input) => { try { return execFileSync('git',['-C',worktree,...args],{encoding:'utf8',input,env:GIT_ENV(),maxBuffer:64*1024*1024,stdio:['pipe','pipe','ignore']}); } catch { return null; } };
+  const env = guardedGitEnv(worktree);
+  const git = (args, input) => { try { return execFileSync('git',['-C',worktree,...args],{encoding:'utf8',input,env,maxBuffer:64*1024*1024,stdio:['pipe','pipe','ignore']}); } catch { return null; } };
   const diff = git(['diff','--name-only','--no-renames',baseSha]); if (diff == null) return null;
   const lines = (t) => (t ?? '').split('\n').map(l => l.trim()).filter(Boolean);
   const hidden = indexHidden(worktree);
