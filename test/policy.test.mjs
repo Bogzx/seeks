@@ -482,3 +482,64 @@ test('every verdict carries a stable rule id (this is what the decision log reco
   assert.equal(r('Edit', edit(`${WT}/src/a.js`), ctx('L1')), 'l1-edit');
   assert.equal(r('Bash', { command:'npm test' }), null);                     // allow carries no rule
 });
+
+// ─── the plugin's own code (2026-09-02 review) ─────────────────────────────────────────
+// `sed -i … $CLAUDE_PLUGIN_ROOT/hooks/lib/policy.mjs` was allowed even under strict mode (sed is
+// on the list): the maker could rewrite the guardrails. And running a hook script by hand could
+// mint the user's control grant. Only `node <root>/bin/seeks.mjs …` may touch the plugin.
+const ROOT = process.platform === 'win32' ? 'C:/plug/seeks' : '/plug/seeks';
+const pctx = (extra = {}) => ({ ...ctx('L2'), pluginRoot: ROOT, ...extra });
+test('Bash cannot rewrite, run or remove the plugin\'s own code', () => {
+  for (const cmd of [
+    `sed -i 's/deny(/allow(/' ${ROOT}/hooks/lib/policy.mjs`,
+    `sed -i 's/deny(/allow(/' $CLAUDE_PLUGIN_ROOT/hooks/lib/policy.mjs`,
+    `sed -i x "\${CLAUDE_PLUGIN_ROOT}/hooks/lib/policy.mjs"`,
+    `echo '{}' > ${ROOT}/hooks/hooks.json`,
+    `cp /tmp/p.mjs ${ROOT}/hooks/lib/policy.mjs`,
+    `printf x | tee ${ROOT}/skills/loop/SKILL.md`,
+    `echo '{"prompt":"/seeks:stop"}' | node ${ROOT}/hooks/user-prompt.mjs`,    // forging the user's grant
+    `node ${ROOT}/hooks/stop-gate.mjs`,
+    `rm -rf ${ROOT}`, `mv ${ROOT} /tmp/x`, `rm -rf ${ROOT}/hooks`,
+    `node -e "require('fs').writeFileSync('${ROOT}/hooks/lib/policy.mjs','')"`,
+    `echo x > ${ROOT}/bin/seeks.mjs`,
+    `node ${ROOT}/bin/seeks.mjs status-get ui > ${ROOT}/bin/seeks.mjs`,       // the CLI is exempt as a SCRIPT, not as a target
+    `cd ${ROOT} && sed -i s/a/b/ hooks/lib/policy.mjs`,
+    `cd ${ROOT}/hooks/lib && echo > policy.mjs`,
+    `sed -i s/a/b/ ${ROOT}/ho*/lib/policy.mjs`,
+    `python3 - <<'EOF'\nopen('${ROOT}/hooks/lib/policy.mjs','w')\nEOF`,
+  ]){
+    const d = decidePreTool('Bash', { command: cmd }, pctx());
+    assert.equal(d.action, 'deny', `should deny: ${cmd}`); assert.equal(d.rule, 'plugin-dir', cmd);
+  }
+});
+test('…under strict mode too, where sed itself is allowlisted', () => {
+  const d = decidePreTool('Bash', { command:`sed -i 's/deny(/allow(/' ${ROOT}/hooks/lib/policy.mjs` }, pctx({ strictBash:true }));
+  assert.equal(d.action, 'deny'); assert.equal(d.rule, 'plugin-dir');
+});
+test('the sanctioned CLI and ordinary work are untouched by the plugin-dir rule', () => {
+  for (const cmd of [
+    `node ${ROOT}/bin/seeks.mjs status-get ui`,
+    `node "$CLAUDE_PLUGIN_ROOT/bin/seeks.mjs" progress-tick ui`,
+    `node "\${CLAUDE_PLUGIN_ROOT}/bin/seeks.mjs" backlog-add ui "fix hooks/lib parsing"`,
+    `npm test`, `sed -i s/a/b/ src/x.js`, `rm -rf node_modules`, `mv build dist`,
+  ]) assert.equal(decidePreTool('Bash', { command: cmd }, pctx()).action, 'allow', `should allow: ${cmd}`);
+});
+test('the edit tools cannot write the plugin\'s code (by construction) — but a self-hosted worktree is fine', () => {
+  const d = decidePreTool('Write', edit(`${ROOT}/hooks/lib/policy.mjs`), pctx());
+  assert.equal(d.action, 'deny'); assert.equal(d.rule, 'plugin-dir');
+  // developing seeks with seeks: the worktree lives under the plugin root, and its hooks/ is a copy, not the live one
+  const wt = `${ROOT}/.claude/worktrees/ui`;
+  assert.equal(decidePreTool('Edit', edit(`${wt}/hooks/lib/policy.mjs`), pctx({ worktreePath: wt })).action, 'allow');
+});
+test('the user\'s control grant and the plane-level crash log are hook-owned', () => {
+  const PLANE = RUN.replace(/\/run\/ui$/, '');
+  for (const cmd of [
+    `echo '{"nonce":"x","expires_at":9e15}' > ${PLANE}/control-grant.json`,
+    `cd ${PLANE} && echo x > control-grant.json`,
+    `echo x > control-grant.json`,
+    `truncate -s0 ${PLANE}/decisions.jsonl`,
+    `python3 -c "open('.seeks/control-grant.json','w')"`,
+  ]) assert.equal(decidePreTool('Bash', { command: cmd }, ctx('L2')).rule, 'hook-owned', `should deny: ${cmd}`);
+  assert.equal(decidePreTool('Write', edit(`${PLANE}/control-grant.json`), ctx('L2')).rule, 'hook-owned');
+  assert.equal(decidePreTool('Bash', { command:`cat ${PLANE}/config.json` }, ctx('L2')).action, 'allow', 'the rest of .seeks/ is not');
+});

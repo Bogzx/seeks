@@ -1,9 +1,15 @@
-import fs from 'node:fs';
+import fs from 'node:fs'; import { fileURLToPath } from 'node:url';
 import { hasSeeksNearby, seeksDir, matchLoopByCwd } from './lib/resolve.mjs';
 import { decidePreTool, strictBashEnabled } from './lib/policy.mjs';
 import { appendDecision, summarizeInput } from './lib/decisions.mjs';
 function stdin(){ try { return fs.readFileSync(0,'utf8'); } catch { return ''; } }
 const input = (()=>{ try { return JSON.parse(stdin()); } catch { return {}; } })();
+// Where the guardrails live — protected from the loop (policy.mjs, rule plugin-dir). Every
+// spelling of it: this file's own location, $CLAUDE_PLUGIN_ROOT, and their resolved forms.
+const pluginRoots = () => { const out = new Set();
+  for (const r of [fileURLToPath(new URL('..', import.meta.url)), process.env.CLAUDE_PLUGIN_ROOT]){ if (!r) continue;
+    out.add(r); try { out.add(fs.realpathSync.native(r)); } catch {} }
+  return [...out]; };
 let runDir = null, sDir = null;                             // hoisted so a crash is still recordable: the run dir if we got
 try {                                                       // that far, else the plane-level .seeks (a corrupt status.json
   const cwd = input.cwd || process.cwd();                   // throws inside resolution, before the loop is known)
@@ -19,7 +25,7 @@ try {                                                       // that far, else th
                                                                 // Bash path resolves against (`> status.json`)
 
           startedAt: s.started_at, timeBudgetSec: s.time_budget_sec, now: Date.now(),
-          strictBash: strictBashEnabled(process.env, s), strictBashAllow: s.strict_bash_allow ?? [] });
+          strictBash: strictBashEnabled(process.env, s), strictBashAllow: s.strict_bash_allow ?? [], pluginRoot: pluginRoots() });
       appendDecision(match.runDir, { hook:'pre-tool', tool: input.tool_name ?? null, action: d.action,
         rule: d.rule ?? null, reason: d.reason ?? null, input: summarizeInput(input.tool_name, input.tool_input),
         level: s.level ?? null, session: input.session_id ?? null });

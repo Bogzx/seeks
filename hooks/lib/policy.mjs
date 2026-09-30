@@ -5,7 +5,7 @@
 // What this covers, and what it deliberately does not, is stated in README.md
 // ("What the guardrails cover — and what they don't").
 import { canon, isInside } from './paths.mjs'; import { anyGlob, globMatchCI } from './glob.mjs';
-import { pastDeadline } from './budget.mjs';
+import { pastDeadline } from './budget.mjs'; import os from 'node:os';
 // The floor, not a suggestion. `**/.env` alone never matched `.env.local`; `.git/**` was
 // ANCHORED, so a submodule's `vendor/lib/.git/config` was editable; and there was no
 // pattern at all for private keys, `.npmrc` (`_authToken`), `~/.aws` or `~/.ssh`.
@@ -23,7 +23,8 @@ export const effectiveDenylist = (extra) => [...DEFAULT_DENYLIST, ...(Array.isAr
 const EDIT_TOOLS = new Set(['Edit','Write','MultiEdit','NotebookEdit']);
 const allow = { action:'allow', rule:null, reason:null };
 const deny = (rule, reason) => ({ action:'deny', rule, reason });
-const HOOK_OWNED_DENY = '[seeks] status.json / hook-state.json / decisions.jsonl are hook-owned — never read or write them directly (that state holds the iteration cap, the clock, the verifier gate and the audit log). Drive state via bin/seeks.mjs: "seeks status-get <name>" / "seeks status-set <name> <patch-json>" / "seeks why <name>".';
+const HOOK_OWNED_DENY = '[seeks] status.json / hook-state.json / decisions.jsonl / control-grant.json are hook-owned — never read or write them directly (that state holds the iteration cap, the clock, the verifier gate and the audit log). Drive state via bin/seeks.mjs: "seeks status-get <name>" / "seeks status-set <name> <patch-json>" / "seeks why <name>".';
+const PLUGIN_DIR_DENY = '[seeks] that is the seeks plugin\'s own code (hooks/, bin/, commands/, skills/, .claude-plugin/) — the guardrails themselves. Only running "node <plugin>/bin/seeks.mjs <cmd>" is allowed.';
 const targetPath = (tool, ti) => !ti ? null : (tool === 'NotebookEdit' ? (ti.notebook_path ?? null) : (ti.file_path ?? null));
 function relTo(absChild, parent){
   if (!parent) return null; const c = canon(absChild); let p = canon(parent);
@@ -310,14 +311,16 @@ function bashGit(cmd){
 // of them, so one write disarms every budget at once — and decisions.jsonl is the audit log
 // that would prove it happened. ONE predicate, consumed by the edit-tool branch AND the Bash
 // branch, so the two can never drift apart.
-const HOOK_FILE = '(?:status\\.json|hook-state\\.json|decisions\\.jsonl)';
+// control-grant.json is the user's one-shot permission to move a live loop's brakes (control.mjs);
+// it lives at the PLANE level (.seeks/), as does the crash log — so both shapes are hook-owned.
+const HOOK_FILE = '(?:status\\.json|hook-state\\.json|decisions\\.jsonl|control-grant\\.json)';
 const HOOK_FILE_RE = new RegExp(`^${HOOK_FILE}$`, 'i');
-const HOOK_OWNED_RE = new RegExp(`(?:^|/)\\.seeks/run/[^/]+/${HOOK_FILE}$`, 'i');
+const HOOK_OWNED_RE = new RegExp(`(?:^|/)\\.seeks/(?:run/[^/]+/)?${HOOK_FILE}$`, 'i');
 // The same shape, UNANCHORED and separator-agnostic: for when the path is spelled out inside
 // something that is not a bare path token — a `python -c` string literal, a heredoc body, an
 // awk program. If the full path appears anywhere in the command text at all, that is enough.
-const HOOK_OWNED_ANYWHERE_RE = new RegExp(`\\.seeks[/\\\\]+run[/\\\\]+[^/\\\\\\s;&|'"()]+[/\\\\]+${HOOK_FILE}`, 'i');
-const HOOK_FILES = ['status.json','hook-state.json','decisions.jsonl'];
+const HOOK_OWNED_ANYWHERE_RE = new RegExp(`\\.seeks[/\\\\]+(?:run[/\\\\]+[^/\\\\\\s;&|'"()]+[/\\\\]+)?${HOOK_FILE}`, 'i');
+const HOOK_FILES = ['status.json','hook-state.json','decisions.jsonl','control-grant.json'];
 const HOOK_MENTION_RE = new RegExp(HOOK_FILE, 'i');
 // A final path component that IS a hook-owned name — or a glob that lands on one. `status.jso[n]`
 // and `sta*.json` name no hook-owned file lexically and resolve onto one, so the question is not
@@ -375,6 +378,7 @@ function mightBeHookOwned(rel){
   const pre = parts.slice(0, -1);
   if (pre.includes('..')) return true;                                          // unresolvable
   const n = pre.length;                                                         // …/.seeks/run/<name>/<file>
+  if (n >= 1 && segMatches(pre[n-1], '.seeks')) return true;                    // …/.seeks/<file> (plane level)
   if (n >= 3) return segMatches(pre[n-2], 'run') && segMatches(pre[n-3], '.seeks');
   if (n === 2) return segMatches(pre[0], 'run');                                // cwd could end in /.seeks
   return true;                                                                  // 0–1 components: cwd could supply the rest
@@ -458,6 +462,7 @@ function underRunDir(abs, runDir){        // belt-and-braces: don't rely on the 
 // past it even though the shell resolves it straight onto the budget file.
 function hookOwnedShape(abs){
   const p = normParts(splitPath(abs));
+  if (p.length >= 2 && isHookFileName(p[p.length-1]) && segMatches(p[p.length-2], '.seeks')) return true;   // plane level
   return p.length >= 4 && isHookFileName(p[p.length-1])
     && segMatches(p[p.length-3], 'run') && segMatches(p[p.length-4], '.seeks');
 }
@@ -468,6 +473,7 @@ function hookOwnedShape(abs){
 function hookOwnedResolved(abs, runDir){
   if (HOOK_OWNED_RE.test(abs)) return true;
   if (runDir && underRunDir(abs, runDir)) return true;
+  if (runDir && underRunDir(abs, normalizePath(runDir + '/../..'))) return true;   // the plane dir (grant, crash log)
   if (GLOB_RE.test(abs) && hookOwnedShape(abs)) return true;
   return !!runDir && GLOB_RE.test(abs) && HOOK_FILES.some(f => globMatchCI(`${runDir}/${f}`, abs));
 }
@@ -552,6 +558,58 @@ function isSeeksCli(seg){           // `node /…/bin/seeks.mjs <cmd>` or a dire
   const script = toks.slice(1).find(t => !t.startsWith('-'));   // node's own flags come first, then the script
   return !!script && SEEKS_CLI_RE.test(script);
 }
+// ─── the plugin's own code ────────────────────────────────────────────────────────────
+// The hooks ARE the guardrails. `sed -i 's/deny(/allow(/' $CLAUDE_PLUGIN_ROOT/hooks/lib/policy.mjs`
+// was allowed — even under SEEKS_STRICT_BASH, where `sed` is on the list — and so was running a
+// hook script by hand (`node …/hooks/user-prompt.mjs <<< '{"prompt":"/seeks:stop"}'` mints the
+// user's grant). So the directories Claude Code loads from the plugin are off limits to every
+// route except the one sanctioned entrypoint, `node <root>/bin/seeks.mjs`. Same tier as the
+// hook-owned files: by construction for the edit tools, best-effort for Bash.
+const PLUGIN_GUARDED = ['hooks','bin','.claude-plugin','commands','skills'];
+const ROOT_KILLERS = new Set(['rm','rmdir','mv','unlink','shred','chmod','chown']);   // …or take the whole plugin away
+const pluginRootsOf = (ctx) => (Array.isArray(ctx.pluginRoot) ? ctx.pluginRoot : [ctx.pluginRoot])
+  .filter(Boolean).map(r => normalizePath(r).replace(/\/+$/, ''));
+function inPluginCode(abs, roots){
+  const a = normalizePath(abs);
+  return roots.some(r => {
+    const pre = `${r}/`;
+    if (a.toLowerCase().slice(0, pre.length) !== pre.toLowerCase()) return false;
+    const first = a.slice(pre.length).split('/')[0];
+    return PLUGIN_GUARDED.some(g => segMatches(first, g));
+  });
+}
+const isAncestorOrSelf = (abs, roots) => { const a = normalizePath(abs).replace(/\/+$/, '').toLowerCase();
+  return roots.some(r => { const rl = r.toLowerCase(); return rl === a || rl.startsWith(`${a}/`) || (a === '' && rl.startsWith('/')); }); };
+const PLUGIN_VAR_RE = /\$\{?CLAUDE_PLUGIN_ROOT\}?/g;
+function expandPluginVars(t, roots){
+  let o = roots.length ? t.replace(PLUGIN_VAR_RE, roots[0]) : t;
+  if (/^~(?=\/|$)/.test(o)) o = os.homedir().split('\\').join('/') + o.slice(1);
+  return o;
+}
+function bashTouchesPluginCode(cmd, ctx = {}){
+  const roots = pluginRootsOf(ctx); if (!roots.length) return false;
+  const mentions = (text) => { const t = String(text ?? '').split('\\').join('/').toLowerCase();
+    return /claude_plugin_root/.test(t) || roots.some(r => PLUGIN_GUARDED.some(g => t.includes(`${r.toLowerCase()}/${g}`))); };
+  for (const v of commandVariants(cmd).list){
+    for (const { argv, toks, cwd, seg } of bashPlan(v, ctx.cwd ?? ctx.worktreePath ?? null)){
+      if (!seg) continue;
+      for (const p of codePayloads(argv)) if (mentions(p)) return true;          // `node -e "…policy.mjs…"`
+      if (argv.length && CODE_HEADS.has(baseOf(argv[0])) && /<<-?\s*['"]?[A-Za-z_]/.test(seg) && mentions(v)) return true;
+      const cli = isSeeksCli(seg) ? head(seg).find(t => SEEKS_CLI_RE.test(t)) : null;
+      let skipped = false;
+      const killer = argv.length > 0 && ROOT_KILLERS.has(baseOf(argv[0]));
+      for (const tok of toks){
+        if (cli && !skipped && tok === cli){ skipped = true; continue; }        // the ONE sanctioned touch: running the CLI
+        for (const raw of pathCandidates(tok)){
+          const abs = resolvePath(cwd, expandPluginVars(raw, roots)); if (abs == null) continue;
+          if (inPluginCode(abs, roots)) return true;
+          if (killer && isAncestorOrSelf(abs, roots)) return true;
+        }
+      }
+    }
+  }
+  return false;
+}
 const WRAPUP_GIT = new Set(['add','commit','status','diff','log','rev-parse','stash']);
 // Past the deadline only wrap-up may run, and EVERY segment must qualify — so a legitimate
 // wrap-up command cannot smuggle a second one along. This used to be a substring test for
@@ -602,6 +660,7 @@ export function decidePreTool(toolName, toolInput, ctx = {}){
     if (op === 'push' || op === 'merge') return deny('git-push', '[seeks] delivery is automated via "seeks deliver" (L3 only); the agent never pushes/merges/rebases directly.');
     if (op === 'commit' && level === 'L1') return deny('l1-commit', '[seeks] L1 is report-only: no commits. Write findings under .seeks/run/<name>/.');
     if (bashTouchesHookOwned(cmd, ctx)) return deny('hook-owned', HOOK_OWNED_DENY);
+    if (bashTouchesPluginCode(cmd, ctx)) return deny('plugin-dir', PLUGIN_DIR_DENY);
     if (ctx.strictBash){
       const bad = strictBashOffender(cmd, ctx.strictBashAllow);
       if (bad) return deny('strict-bash', `[seeks] SEEKS_STRICT_BASH is on and '${bad}' is not on the Bash allowlist — denied. Allowed heads: ${STRICT_BASH_ALLOW.join(' ')}. Add more with "strict_bash_allow" in the loop's status (via "seeks status-set <name> '{\\"strict_bash_allow\\":[\\"cargo\\"]}'"), or turn strict mode off for a goal you trust.`);
@@ -614,6 +673,7 @@ export function decidePreTool(toolName, toolInput, ctx = {}){
   const p = targetPath(toolName, toolInput); if (!p) return allow;
   const abs = canon(p);
   if (isHookOwnedFile(abs)) return deny('hook-owned', HOOK_OWNED_DENY);
+  if (inPluginCode(abs, pluginRootsOf(ctx))) return deny('plugin-dir', PLUGIN_DIR_DENY);
   if (ctx.runDir && isInside(abs, ctx.runDir)) return allow;            // run-dir allow-zone
   const rel = relTo(abs, ctx.worktreePath);
   if (rel != null && anyGlob(rel, effectiveDenylist(ctx.denylist)))
