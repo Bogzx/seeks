@@ -25,16 +25,19 @@ function initRepo(){
 }
 const commit = (repo, msg) => { sh('git',['add','-A'],repo); sh('git',['commit','-q','-m',msg],repo); };
 
-// worktree on seeks/<name>, ARMED status (so the Stop hook drives it), seeded backlog, spec.
+// worktree on seeks/<name>, armed via `seeks start` (so the Stop hook drives it), seeded backlog, spec.
 function scaffold(repo, name, { status={}, backlog=[], spec='' } = {}){
   const base = sh('git',['rev-parse','--abbrev-ref','HEAD'],repo).trim();
   sh('git',['worktree','add',`.claude/worktrees/${name}`,'-b',`seeks/${name}`,base],repo);
   const wt = path.join(repo,'.claude','worktrees',name);
-  seeks(repo,'init',name, JSON.stringify({ loop:name, armed:true, done:false, verifier_certified:false,
+  // Every fixture's oracle is `npm test`; the Stop hook runs it itself before it releases done.
+  const { time_budget_sec, started_at, ...rest } = status;
+  seeks(repo,'init',name, JSON.stringify({ loop:name, conditions:[{ id:'tests', cmd:'npm test' }],
     open_items:0, items_closed_total:0, no_progress_count:0, condition_rejects:{}, dry_sweeps:0, dry_sweeps_prev:0,
-    worktree_path: wt, max_iters:30, stuck_threshold:3, condition_reject_threshold:3, lock_stale_ttl_sec:600, ...status }));
+    worktree_path: wt, max_iters:30, stuck_threshold:3, condition_reject_threshold:3, lock_stale_ttl_sec:600, ...rest }));
   for (const item of backlog) seeks(repo,'backlog-add',name,item);
   seeks(repo,'status-set',name, JSON.stringify({ open_items: backlog.length, open_items_prev: backlog.length }));
+  seeks(repo,'start',name, ...(time_budget_sec ? ['--budget', String(time_budget_sec)] : []));   // init never arms; start does
   const sd = path.join(repo,'.seeks','loops',name); fs.mkdirSync(sd,{recursive:true});
   fs.writeFileSync(path.join(sd,'spec.md'), spec);
   fs.writeFileSync(path.join(repo,'.seeks','run',name,'state.md'), `# ${name}\nfocus: begin\n`);

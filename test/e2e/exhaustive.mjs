@@ -48,12 +48,16 @@ sh('git', ['worktree', 'add', `.claude/worktrees/${name}`, '-b', `seeks/${name}`
 const wt = path.join(repo, '.claude', 'worktrees', name);
 
 // The exact stuck state: exhaustive, certified + delivered (L3), but dry_depth_rounds 0/2.
+// init never arms and never certifies: `seeks start` arms, `seeks certify` is the verifier's sign-off,
+// and the Stop hook runs the (trivially green) done-condition itself before releasing done.
 seeks(repo, 'init', name, JSON.stringify({
-  loop: name, armed: true, done: true, verifier_certified: true, delivered: true, level: 'L3',
+  loop: name, delivered: true, level: 'L3',
   exhaustive: true, sweep_lenses: ['a', 'b'], dry_lenses: [], dry_sweeps: 3, depth: 1,
-  dry_depth_rounds: 0, min_dry_depth_rounds: 2, executable_condition_count: 1,
+  dry_depth_rounds: 0, min_dry_depth_rounds: 2, conditions: [{ id: 'green', cmd: 'node -e "process.exit(0)"' }],
   worktree_path: wt, max_iters: 50, stuck_threshold: 99, condition_reject_threshold: 99, base_ref: base,
 }));
+seeks(repo, 'start', name);
+seeks(repo, 'certify', name);
 
 console.log(`\n[1] stuck state — certified + delivered, but exhaustive bar unmet (dry_depth_rounds 0/2):`);
 let r;
@@ -76,19 +80,21 @@ const ss = JSON.parse(seeks(repo, 'sweep-status', name));
 ok(ss.satisfied === false, 'sweep-status (what the skill consults BEFORE certifying) says satisfied:false — a compliant maker would never have certified early');
 
 console.log(`\n[2] maker keeps sweeping (the corrected behavior) until the exhaustive bar is met:`);
+let releaseFire = null;
 for (const [i, lens] of ['a', 'b', 'a', 'b'].entries()) {
   seeks(repo, 'sweep-tick', name, '0', lens);                  // one dry sweep through a fresh lens, via the real CLI
   const s = JSON.parse(seeks(repo, 'sweep-status', name));
-  const released = fireStopHook(wt).decision !== 'block';
+  const f = fireStopHook(wt); const released = f.decision !== 'block'; if (released) releaseFire = f;
   console.log(`  sweep ${i + 1} (${lens}): ${s.label}  →  satisfied=${s.satisfied}, gate ${released ? 'RELEASES' : 'holds'}`);
   ok(released === s.satisfied, `sweep ${i + 1}: gate release === sweep-status.satisfied (single source of truth)`);
 }
 
 const finalStatus = JSON.parse(seeks(repo, 'status-get', name));
 ok(finalStatus.dry_depth_rounds === 2, `dry_depth_rounds reached the target (${finalStatus.dry_depth_rounds}/2)`);
-const fin = fireStopHook(wt);
-ok(fin.decision !== 'block', 'gate now ALLOWS the stop (no block) — the loop terminates on its own, no self-disarm needed');
-ok(/✅ done/.test(fin.systemMessage || ''), 'banner shows ✅ done (clean terminal release)');
+ok(releaseFire && releaseFire.decision !== 'block', 'gate ALLOWS the stop (no block) — the loop terminates on its own, no self-disarm needed');
+ok(/✅ done/.test(releaseFire?.systemMessage || ''), 'the releasing stop shows ✅ done (clean terminal release)');
+ok(finalStatus.done === true && !!finalStatus.gate_verified_at, 'done:true was written by the gate, after it ran the done-condition itself');
+ok(Object.keys(fireStopHook(wt)).length === 0, 'a later stop is silent — the release is latched, the banner prints once');
 
 try { sh('git', ['worktree', 'remove', '--force', `.claude/worktrees/${name}`], repo); } catch {}
 try { fs.rmSync(repo, { recursive: true, force: true }); } catch {}

@@ -15,10 +15,12 @@ test('package.json declares license + repository + engines', () => {
   assert.ok(pkg.repository?.url?.includes('Bogzx/seeks'));
   assert.ok(pkg.engines?.node, 'engines.node pins the >=18 requirement the README states');
 });
-test('hooks.json wires Stop + SessionStart + PreToolUse', () => {
+test('hooks.json wires Stop + SessionStart + PreToolUse + UserPromptSubmit', () => {
   const h = JSON.parse(fs.readFileSync(new URL('../hooks/hooks.json', import.meta.url)));
   assert.ok(h.hooks.Stop && h.hooks.SessionStart);
   assert.ok(h.hooks.PreToolUse, 'PreToolUse must be wired');
+  assert.ok(h.hooks.UserPromptSubmit, 'UserPromptSubmit mints the user\'s grant for /seeks:start|stop|delete');
+  assert.ok(h.hooks.Stop[0].hooks[0].timeout >= 600, 'the Stop hook runs the done-conditions: it needs more than the default timeout');
 });
 test('every command doc has frontmatter, and /seeks:why is shipped', () => {
   const dir = new URL('../commands/', import.meta.url);
@@ -41,4 +43,12 @@ test('the repo carries the community-health files a public plugin needs', () => 
 test('the README ships small enough to render — the logo is not a megabyte', () => {
   const png = fs.statSync(new URL('../assets/seeks.png', import.meta.url));
   assert.ok(png.size < 120_000, `assets/seeks.png is ${png.size} bytes; it renders at 240px wide`);
+});
+test('CI tests every Node major that package.json engines promises, and pins actions by SHA', () => {
+  const ci = fs.readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url)));
+  const min = Number(/>=\s*(\d+)/.exec(pkg.engines.node)[1]);
+  const matrix = (/node: \[([^\]]+)\]/.exec(ci)[1].match(/\d+/g) || []).map(Number);
+  assert.equal(Math.min(...matrix), min, `engines says >=${min}; CI's oldest leg is ${Math.min(...matrix)}`);
+  for (const m of ci.matchAll(/uses:\s*(\S+)/g)) assert.match(m[1], /@[0-9a-f]{40}$/, `${m[1]} is not pinned by commit SHA`);
 });

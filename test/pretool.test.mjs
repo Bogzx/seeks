@@ -122,3 +122,16 @@ test('past deadline: wrap-up actions are allowed, other work denied', () => {
   out = JSON.parse(run(wt, { tool_name:'Bash', tool_input:{ command:'git push origin HEAD' } }));
   assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
 });
+test('the real hook protects its OWN plugin directory — the one it was loaded from', () => {
+  const { wt } = armLoop('L2');
+  const root = fileURLToPath(new URL('..', import.meta.url)).split('\\').join('/').replace(/\/$/, '');
+  for (const command of [`sed -i 's/deny(/allow(/' ${root}/hooks/lib/policy.mjs`,
+                         `echo '{"prompt":"/seeks:stop"}' | node ${root}/hooks/user-prompt.mjs`]){
+    const out = JSON.parse(runEnv(wt, { tool_name:'Bash', tool_input:{ command } }, { SEEKS_STRICT_BASH:'1' }));
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'deny', command);
+    assert.match(out.hookSpecificOutput.permissionDecisionReason, /plugin/);
+  }
+  assert.equal(run(wt, { tool_name:'Bash', tool_input:{ command:`node ${root}/bin/seeks.mjs status-get ui` } }), '');
+  const edit = JSON.parse(run(wt, { tool_name:'Edit', tool_input:{ file_path: `${root}/hooks/lib/policy.mjs` } }));
+  assert.equal(edit.hookSpecificOutput.permissionDecision, 'deny');
+});

@@ -5,7 +5,7 @@
     {
       "name": "seeks",
       "source": ".",
-      "description": "Self-running, verifier-gated loops with durable .seeks/ state and native worktrees."
+      "description": "Self-running Claude Code loops on a throwaway worktree: hooks hold the budget, and done is released only when the hook itself re-runs your checks green."
     }
   ]
 }

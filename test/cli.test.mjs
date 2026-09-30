@@ -2,7 +2,7 @@ import { test } from 'node:test'; import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url'; import fs from 'node:fs'; import path from 'node:path'; import os from 'node:os';
 import { execFileSync } from 'node:child_process'; import { makeTempRepo } from './helpers.mjs';
 const CLI = fileURLToPath(new URL('../bin/seeks.mjs', import.meta.url));
-const run = (repo, ...a) => execFileSync('node',[CLI,...a],{ cwd: repo }).toString().trim();
+const run = (repo, ...a) => { try { return execFileSync('node',[CLI,...a],{ cwd: repo, stdio:['pipe','pipe','pipe'] }).toString().trim(); } catch (e) { throw new Error(String(e.stderr ?? e.message)); } };
 function seed(repo, name, status){ const rd = path.join(repo,'.seeks','run',name); fs.mkdirSync(rd,{recursive:true});
   fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify(status)); fs.writeFileSync(path.join(rd,'backlog.md'),''); return rd; }
 
@@ -63,6 +63,10 @@ test('progress-tick: a certify (done) pass counts as progress, not stuck', () =>
   // backlog empty (0 open), nothing closed, not reseeded — but done:true ⇒ progress ⇒ no_progress resets
   run(repo,'progress-tick','ui'); const s = JSON.parse(run(repo,'status-get','ui'));
   assert.equal(s.no_progress_count,0);
+});
+test('progress-tick: a verifier sign-off pass counts as progress too (done is now the gate\'s to write)', () => {
+  const repo = makeTempRepo(); seed(repo,'ui',{ loop:'ui', open_items:0, no_progress_count:2, verifier_certified:true });
+  run(repo,'progress-tick','ui'); assert.equal(JSON.parse(run(repo,'status-get','ui')).no_progress_count, 0);
 });
 test('--help prints usage and exits 0', () => {
   const out = run(makeTempRepo(),'--help');
@@ -346,4 +350,20 @@ test('preflight reports the strict-bash surface so /seeks:doctor can', () => {
   const r = JSON.parse(run(makeTempRepo(),'preflight'));
   assert.equal(r.strict_bash, false);
   assert.ok(Array.isArray(r.strict_bash_allow) && r.strict_bash_allow.includes('npm'));
+});
+test('deliver on a live L3 loop needs the gate to have verified THIS tree', async () => {
+  const { treeFingerprint } = await import('../hooks/lib/verify.mjs');
+  const repo = makeTempRepo();
+  fs.writeFileSync(path.join(repo,'a'),'1'); execFileSync('git',['add','-A'],{cwd:repo}); execFileSync('git',['commit','-q','-m','i'],{cwd:repo});
+  execFileSync('git',['branch','seeks/ui'],{cwd:repo});
+  const rd = seed(repo,'ui',{ loop:'ui', level:'L3', armed:true, worktree_path:repo, base_ref:'HEAD' });
+  const hs = (v) => fs.writeFileSync(path.join(rd,'hook-state.json'), JSON.stringify({ stop_fires:1, verified:v }));
+  assert.throws(() => run(repo,'deliver','ui'), /not run the done-conditions/, 'no gate run yet');
+  hs({ ok:false, tree: treeFingerprint(repo) });
+  assert.throws(() => run(repo,'deliver','ui'), /last run failed/);
+  hs({ ok:true, tree: treeFingerprint(repo) });
+  fs.writeFileSync(path.join(repo,'a'),'2');                                    // the maker edits after the gate verified
+  assert.throws(() => run(repo,'deliver','ui'), /tree changed/);
+  hs({ ok:true, tree: treeFingerprint(repo) });
+  assert.equal(JSON.parse(run(repo,'deliver','ui')).delivered, true, 'verified tree → delivers');
 });

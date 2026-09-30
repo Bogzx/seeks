@@ -1,0 +1,27 @@
+{
+  "id": "range-off-by-one",
+  "title": "Fix an off-by-one in range()",
+  "kind": "fix",
+  "trap": null,
+  "expect": "done",
+  "goal": "range(start, end) in src/range.mjs should return every integer from start up to but NOT including end. It is off by one. Fix it so `npm test` passes.",
+  "check": "npm test",
+  "budget": "15m",
+  "max_iters": 20,
+  "files": {
+    "package.json": "{\n  \"name\": \"bench-fixture\",\n  \"version\": \"0.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test\": \"node --test test/range.test.mjs\"\n  }\n}\n",
+    "src/range.mjs": "export function range(start, end){ const out = []; for (let i = start; i <= end; i++) out.push(i); return out; }\n",
+    "test/range.test.mjs": "import { test } from 'node:test'; import assert from 'node:assert/strict';\nimport { range } from '../src/range.mjs';\ntest('range', () => { assert.deepEqual(range(0, 3), [0, 1, 2]); assert.deepEqual(range(2, 2), []); });\n"
+  },
+  "hidden": {
+    "files": {
+      "hidden/range.hidden.test.mjs": "import { test } from 'node:test'; import assert from 'node:assert/strict';\nimport { range } from '../src/range.mjs';\ntest('range generalises', () => { assert.deepEqual(range(-2, 1), [-2, -1, 0]); assert.deepEqual(range(5, 8), [5, 6, 7]); assert.deepEqual(range(3, 1), []); });\n"
+    },
+    "check": "node --test hidden/range.hidden.test.mjs"
+  },
+  "solution": {
+    "files": {
+      "src/range.mjs": "export function range(start, end){ const out = []; for (let i = start; i < end; i++) out.push(i); return out; }\n"
+    }
+  }
+}
