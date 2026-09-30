@@ -55,3 +55,48 @@ test('oracleGlobsPresent counts files matching the globs in the worktree', () =>
   fs.writeFileSync(path.join(repo,'test','b.test.js'),'2\n');
   assert.equal(oracleGlobsPresent(repo), 2);                 // untracked test file also counts
 });
+
+// ─── pre-existing oracle files (tests AND build manifests) ────────────────────────────
+import { oracleModifiedPreexisting, oraclePolicy, MANIFEST_GLOBS } from '../hooks/lib/oracle.mjs';
+import { anyGlob } from '../hooks/lib/glob.mjs';
+function fixture(){
+  const repo = makeTempRepo();
+  fs.mkdirSync(path.join(repo,'test'),{recursive:true});
+  fs.writeFileSync(path.join(repo,'test','a.test.js'), 'assert(1===1)\n');
+  fs.writeFileSync(path.join(repo,'test','b.test.js'), 'assert(2===2)\n');
+  fs.writeFileSync(path.join(repo,'package.json'), '{"scripts":{"test":"node --test"}}\n');
+  fs.writeFileSync(path.join(repo,'src.js'), 'x\n');
+  return { repo, base: commitAll(repo,'init') };
+}
+test('the default oracle covers the build manifests and runner configs, not just tests', () => {
+  for (const f of ['package.json','packages/api/package.json','Makefile','pyproject.toml','setup.cfg','tox.ini','pytest.ini',
+    'jest.config.js','vitest.config.ts','.github/workflows/ci.yml','.gitlab-ci.yml','tests/conftest.py'])
+    assert.ok(anyGlob(f, DEFAULT_ORACLE_GLOBS), f);
+  for (const f of ['src/index.js','README.md','package-lock.json']) assert.ok(!anyGlob(f, DEFAULT_ORACLE_GLOBS), f);
+  assert.ok(MANIFEST_GLOBS.every(g => DEFAULT_ORACLE_GLOBS.includes(g)));
+});
+test('additions are free; modifications and deletions of pre-existing oracle files are listed', () => {
+  const { repo, base } = fixture();
+  assert.deepEqual(oracleModifiedPreexisting(repo, base), []);
+  fs.writeFileSync(path.join(repo,'test','new.test.js'), 'assert(3===3)\n');          // added → free
+  fs.writeFileSync(path.join(repo,'src.js'), 'y\n');                                     // not an oracle file
+  assert.deepEqual(oracleModifiedPreexisting(repo, base), []);
+  fs.writeFileSync(path.join(repo,'test','a.test.js'), 'assert(true)\n');               // relaxed assertion
+  fs.rmSync(path.join(repo,'test','b.test.js'));                                         // deleted test
+  fs.writeFileSync(path.join(repo,'package.json'), '{"scripts":{"test":"true"}}\n');     // the classic fake green
+  assert.deepEqual(oracleModifiedPreexisting(repo, base), [
+    { file:'package.json', change:'modified' }, { file:'test/a.test.js', change:'modified' }, { file:'test/b.test.js', change:'deleted' }]);
+});
+test('committed and renamed changes count too; a reverted edit does not', () => {
+  const { repo, base } = fixture();
+  git(repo,'mv','test/a.test.js','test/renamed.test.js'); commitAll(repo,'rename');
+  assert.deepEqual(oracleModifiedPreexisting(repo, base), [{ file:'test/a.test.js', change:'deleted' }], 'a rename drops the original');
+  git(repo,'mv','test/renamed.test.js','test/a.test.js'); commitAll(repo,'rename back');
+  assert.deepEqual(oracleModifiedPreexisting(repo, base), []);
+});
+test('no base → unknown (null), and the policy defaults to needs_human', () => {
+  const { repo } = fixture();
+  assert.equal(oracleModifiedPreexisting(repo, null), null);
+  assert.equal(oraclePolicy({}), 'needs_human'); assert.equal(oraclePolicy({ oracle_modified_policy:'ack' }), 'ack');
+  assert.equal(oraclePolicy({ oracle_modified_policy:'bogus' }), 'needs_human', 'an unknown value is the safe default');
+});

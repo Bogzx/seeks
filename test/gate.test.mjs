@@ -119,3 +119,13 @@ test('wind-down: near the deadline the block reason says to wrap up', () => {
   const normal = decide(s, hs(1), 100000);                       // far from deadline → normal message
   assert.match(normal.reason, /Do EXACTLY ONE pass/);
 });
+test('green on a modified pre-existing oracle → needs-human by default; policy "ack" restores done', () => {
+  const g = { ...base, verifier_certified:true, conditions_live:OK, oracle_modified:['test/a.test.js (modified)'] };
+  const r = decide(g, hs(1));
+  assert.equal(r.action, 'allow'); assert.equal(r.stopKind, 'needs_human'); assert.equal(r.detail, 'oracle-modified');
+  assert.equal(decide({ ...g, level:'L3' }, hs(1)).stopKind, 'needs_human', 'never nudged to deliver a changed oracle');
+  assert.equal(decide({ ...g, oracle_modified_policy:'ack' }, hs(1)).stopKind, 'done');
+  assert.equal(decide({ ...g, oracle_modified:[] }, hs(1)).stopKind, 'done');
+  const red = decide({ ...g, conditions_live:{ ok:false, failed:[{ id:'tests', exit:1 }] } }, hs(1));
+  assert.equal(red.action, 'block', 'a red check is still the maker\'s to fix first');
+});

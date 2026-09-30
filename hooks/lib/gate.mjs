@@ -1,6 +1,7 @@
 import { pastDeadline, windDownNear } from './budget.mjs';
 import { sweepProgress, sweepSatisfied } from './sweep.mjs';   // shared predicate (banner + sweep-status CLI use the same)
 import { executableConditions } from './verify.mjs';
+import { oraclePolicy } from './oracle.mjs';
 function oracleSatisfied(s){
   if (s.oracle_live_hash == null) return true;   // not computed (legacy / fail-open) → don't block
   return s.oracle_ack_hash === s.oracle_live_hash;
@@ -30,6 +31,11 @@ export function decide(status, hookState, now = Date.now()){
   // status.done is an OUTPUT of this gate, never an input: writing it changes nothing here.
   const certified = s.verifier_certified === true && hasRealCheck(s);
   const verified = readyForGateCheck(s) && s.conditions_live?.ok === true;
+  // Green — but on a check whose pre-existing tests/manifests were changed. Whether that change
+  // still measures the goal is a judgment the maker must not make for itself (it can run
+  // oracle-ack), so by default a human does. `oracle_modified` is computed by the stop hook.
+  if (verified && oraclePolicy(s) === 'needs_human' && (s.oracle_modified?.length ?? 0) > 0)
+    return { action:'allow', reason:null, stopKind:'needs_human', detail:'oracle-modified' };
   if (verified && deliverySatisfied(s)) return { action:'allow', reason:null, stopKind:'done' };
   if (s.needs_human === true) return { action:'allow', reason:null, stopKind:'needs_human' };
   if (s.verifier_certified === true && !hasRealCheck(s))           // nothing runnable to release on → a human decides

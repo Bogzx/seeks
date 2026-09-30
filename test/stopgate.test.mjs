@@ -159,3 +159,41 @@ test('a certified loop with no runnable condition ends in needs-human, not done'
   const { wt } = certifiedLoop([{ id:'judge', human_required:true }]);
   assert.match(JSON.parse(run(wt)).systemMessage, /needs-human/);
 });
+
+// ─── a green check on a changed oracle ends with a human (2026-09-30 round 2) ──────────
+function oracleLoop({ policy, edit }){
+  const repo = makeTempRepo();
+  fs.mkdirSync(path.join(repo,'test'),{recursive:true});
+  fs.writeFileSync(path.join(repo,'test','a.test.js'),'1\n');
+  fs.writeFileSync(path.join(repo,'package.json'),'{"scripts":{"test":"node --test"}}\n');
+  execFileSync('git',['add','-A'],{cwd:repo}); execFileSync('git',['commit','-q','-m','i'],{cwd:repo});
+  const base = execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim();
+  edit(repo);
+  const rd = path.join(repo,'.seeks','run','om'); fs.mkdirSync(rd,{recursive:true});
+  const st = { loop:'om', armed:true, verifier_certified:true, conditions:PASS, worktree_path:repo, base_sha:base,
+    open_items:0, max_iters:50, stuck_threshold:3, no_progress_count:0, ...(policy ? { oracle_modified_policy: policy } : {}) };
+  st.oracle_ack_hash = oracleDiffHashFor(repo, base);              // the (advisory) ack is current — this is not the stale-ack path
+  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify(st));
+  return { repo, rd, status: () => JSON.parse(fs.readFileSync(path.join(rd,'status.json'),'utf8')) };
+}
+import { oracleDiffHash, DEFAULT_ORACLE_GLOBS } from '../hooks/lib/oracle.mjs';
+const oracleDiffHashFor = (repo, base) => oracleDiffHash(repo, base, DEFAULT_ORACLE_GLOBS).hash;
+test('conditions green + acked, but package.json\'s test script was rewritten → needs-human, not done', () => {
+  const { repo, status } = oracleLoop({ edit: (r) => fs.writeFileSync(path.join(r,'package.json'),'{"scripts":{"test":"true"}}\n') });
+  const out = JSON.parse(run(repo));
+  assert.ok(!out.decision); assert.match(out.systemMessage, /needs-human/); assert.doesNotMatch(out.systemMessage, /✅ done/);
+  assert.match(out.systemMessage, /package\.json \(modified\)/);
+  const s = status(); assert.equal(s.needs_human, true); assert.notEqual(s.done, true); assert.match(s.last_verdict, /oracle_modified_policy/);
+});
+test('a deleted pre-existing test also routes to a human', () => {
+  const { repo } = oracleLoop({ edit: (r) => fs.rmSync(path.join(r,'test','a.test.js')) });
+  assert.match(JSON.parse(run(repo)).systemMessage, /test\/a\.test\.js \(deleted\)/);
+});
+test('ADDING a test is free: green + acked releases done', () => {
+  const { repo } = oracleLoop({ edit: (r) => fs.writeFileSync(path.join(r,'test','b.test.js'),'2\n') });
+  assert.match(JSON.parse(run(repo)).systemMessage, /✅ done/);
+});
+test('oracle_modified_policy "ack" is the documented opt-out: the ack is enough again', () => {
+  const { repo } = oracleLoop({ policy:'ack', edit: (r) => fs.writeFileSync(path.join(r,'test','a.test.js'),'relaxed\n') });
+  assert.match(JSON.parse(run(repo)).systemMessage, /✅ done/);
+});

@@ -3,7 +3,7 @@ import { hasSeeksNearby, seeksDir, matchLoopByCwd } from './lib/resolve.mjs';
 import { bumpFire, latchRelease, recordVerification } from './lib/hookstate.mjs';
 import { decide, readyForGateCheck } from './lib/gate.mjs';
 import { composeBanner } from './lib/banner.mjs';
-import { oracleDiffHash } from './lib/oracle.mjs';
+import { oracleDiffHash, oracleModifiedPreexisting, DEFAULT_ORACLE_GLOBS } from './lib/oracle.mjs';
 import { appendDecision } from './lib/decisions.mjs';
 import { readStatus, writeStatusAtomic } from './lib/status.mjs';
 import { executableConditions, runConditions, treeFingerprint, applyConditionReject } from './lib/verify.mjs';
@@ -21,7 +21,7 @@ try {                                                       // fail-open: a hook
       runDir = match.runDir;
       const hs = bumpFire(match.runDir, input.session_id ?? null, Date.now());  // own counter + heartbeat
       // Values only this hook computes: whatever status.json claims for them is discarded.
-      let status = { ...match.status, oracle_live_hash: undefined, conditions_live: undefined };
+      let status = { ...match.status, oracle_live_hash: undefined, conditions_live: undefined, oracle_modified: undefined };
       if (status.verifier_certified === true){              // only when a certify is pending (rare): is the oracle ack still fresh?
         try { const od = oracleDiffHash(status.worktree_path, status.base_sha, status.oracle_globs);
           if (od.files.length > 0) status = { ...status, oracle_live_hash: od.hash };  // ack only required when oracle files actually changed
@@ -33,6 +33,8 @@ try {                                                       // fail-open: a hook
       // cheap. Any edit changes the fingerprint and forces a fresh run.
       let ran = null;
       if (readyForGateCheck(status)){
+        const om = oracleModifiedPreexisting(status.worktree_path, status.base_sha, status.oracle_globs ?? DEFAULT_ORACLE_GLOBS);
+        if (om) status = { ...status, oracle_modified: om.map(o => `${o.file} (${o.change})`) };
         const fp = treeFingerprint(status.worktree_path);
         const v = hs.verified;
         if (fp && v && v.ok === true && (v.tree === fp || v.tree_after === fp)) status = { ...status, conditions_live: { ok: true, cached: true } };
@@ -48,6 +50,11 @@ try {                                                       // fail-open: a hook
         const f = ran.results.find(r => !r.ok);
         patchStatus(match.runDir, { verifier_certified: false, done: false, last_verdict: `gate REJECT (${f.id}: exit ${f.exit ?? f.tail})`,
           ...applyConditionReject(readStatus(match.runDir) ?? {}, f.id) });
+      }
+      if (d.detail === 'oracle-modified'){                  // green, but on a changed oracle: a human decides
+        const last_verdict = `green, but pre-existing oracle files changed: ${status.oracle_modified.join(', ')} — review the diff (to accept: status-set oracle_modified_policy "ack", then /seeks:start)`;
+        status = { ...status, last_verdict };
+        patchStatus(match.runDir, { last_verdict, oracle_modified: status.oracle_modified, needs_human: true });
       }
       if (d.action === 'allow' && d.stopKind === 'done')    // the ONLY writer of done:true
         patchStatus(match.runDir, { done: true, gate_verified_at: new Date().toISOString() });
