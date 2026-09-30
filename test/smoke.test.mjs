@@ -44,3 +44,11 @@ test('the README ships small enough to render — the logo is not a megabyte', (
   const png = fs.statSync(new URL('../assets/seeks.png', import.meta.url));
   assert.ok(png.size < 120_000, `assets/seeks.png is ${png.size} bytes; it renders at 240px wide`);
 });
+test('CI tests every Node major that package.json engines promises, and pins actions by SHA', () => {
+  const ci = fs.readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url)));
+  const min = Number(/>=\s*(\d+)/.exec(pkg.engines.node)[1]);
+  const matrix = (/node: \[([^\]]+)\]/.exec(ci)[1].match(/\d+/g) || []).map(Number);
+  assert.equal(Math.min(...matrix), min, `engines says >=${min}; CI's oldest leg is ${Math.min(...matrix)}`);
+  for (const m of ci.matchAll(/uses:\s*(\S+)/g)) assert.match(m[1], /@[0-9a-f]{40}$/, `${m[1]} is not pinned by commit SHA`);
+});
