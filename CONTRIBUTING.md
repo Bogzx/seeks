@@ -8,12 +8,15 @@ Thanks for looking. seeks is young — bug reports are worth more than features 
 
 ```
 bin/seeks.mjs        the CLI — the ONLY sanctioned way to write loop state
+bin/run.mjs          `seeks run`: the headless driver (bin/lib/driver.mjs holds its pure helpers)
 hooks/*.mjs          the four hook entrypoints (PreToolUse, Stop, SessionStart, UserPromptSubmit)
 hooks/lib/*.mjs      pure, testable modules — no I/O in the deciding functions
 commands/*.md        the /seeks:* slash commands
 skills/loop/SKILL.md the loop discipline the maker/verifier follow
 test/*.test.mjs      node:test, one file per module
-test/e2e/            spawns real `claude -p` children — not run in CI
+test/e2e/            spawns real `claude -p` children — not run in CI (exhaustive.mjs is the model-free exception, and is)
+test/fixtures/fake-claude.mjs   a model-free stand-in for `claude -p` that drives the REAL stop hook; test/run.test.mjs puts it on PATH
+bench/               the benchmark harness (tasks, runner, results table) — needs credits, never run in CI
 ```
 
 ## Rules that are not negotiable
