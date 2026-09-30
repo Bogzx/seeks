@@ -100,3 +100,11 @@ test('no base → unknown (null), and the policy defaults to needs_human', () =>
   assert.equal(oraclePolicy({}), 'needs_human'); assert.equal(oraclePolicy({ oracle_modified_policy:'ack' }), 'ack');
   assert.equal(oraclePolicy({ oracle_modified_policy:'bogus' }), 'needs_human', 'an unknown value is the safe default');
 });
+test('a dependency bump in package.json is NOT a modified oracle; a scripts change is; whole mode restores bytes', () => {
+  const { repo, base } = fixture();                                                  // package.json: {"scripts":{"test":"node --test"}}
+  fs.writeFileSync(path.join(repo,'package.json'), JSON.stringify({ scripts:{ test:'node --test' }, dependencies:{ lodash:'^4.17.21' } }, null, 2));
+  assert.deepEqual(oracleModifiedPreexisting(repo, base), [], 'adding a dependency is free');
+  assert.deepEqual(oracleModifiedPreexisting(repo, base, undefined, { manifestDiff:'whole' }), [{ file:'package.json', change:'modified' }]);
+  fs.writeFileSync(path.join(repo,'package.json'), JSON.stringify({ scripts:{ test:'true' }, dependencies:{ lodash:'^4.17.21' } }));
+  assert.deepEqual(oracleModifiedPreexisting(repo, base), [{ file:'package.json', change:'modified' }]);
+});
