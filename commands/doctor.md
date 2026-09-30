@@ -5,6 +5,8 @@ Report:
 
 0) **installed build** — `node "${CLAUDE_PLUGIN_ROOT}/bin/seeks.mjs" --version`. Quote it in any bug report (`/seeks:export` bundles it too); `preflight` also returns it as `seeks_version`.
 
+0a) **all four hooks are wired** — seeks registers `Stop`, `PreToolUse`, `SessionStart` and `UserPromptSubmit`. The last one is what lets `/seeks:stop` disarm a running loop: if `seeks why <name>` never shows a `grant:*` row after the user typed `/seeks:stop`, the hook isn't firing — say so.
+
 0b) **enforcement is actually running** — `preflight` returns `strict_bash` (is `SEEKS_STRICT_BASH` on for this session?) and `strict_bash_allow` (the active Bash allowlist); report both. Then, for the most recent loop, run `node "${CLAUDE_PLUGIN_ROOT}/bin/seeks.mjs" why <name> --crashes`. **The hooks are fail-open** — a crashed hook allows everything silently — so a non-empty crash list is the single most important thing on this report. Print the errors verbatim and treat it as a bug worth `/seeks:export`. An empty decision log for a loop that has been running means the hooks never fired at all (check step 1).
 
 1) **`node` + `git` on PATH** — run `node "${CLAUDE_PLUGIN_ROOT}/bin/seeks.mjs" preflight` (it also flags the common **version-manager-node** trap that `node -v` here would hide), plus `node -v` and `git --version`. If `preflight` returns `ok:false` (or either is missing), the Stop hook can't run (every stop fails with `Stop hook error: … node not found`) — surface the `hint` and **offer to apply the fix** (symlink node onto a system PATH, or add `"env":{"PATH":…}` to `~/.claude/settings.json` with consent), then re-run `preflight`. Otherwise print this remedy verbatim:

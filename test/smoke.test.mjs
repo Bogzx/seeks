@@ -15,10 +15,12 @@ test('package.json declares license + repository + engines', () => {
   assert.ok(pkg.repository?.url?.includes('Bogzx/seeks'));
   assert.ok(pkg.engines?.node, 'engines.node pins the >=18 requirement the README states');
 });
-test('hooks.json wires Stop + SessionStart + PreToolUse', () => {
+test('hooks.json wires Stop + SessionStart + PreToolUse + UserPromptSubmit', () => {
   const h = JSON.parse(fs.readFileSync(new URL('../hooks/hooks.json', import.meta.url)));
   assert.ok(h.hooks.Stop && h.hooks.SessionStart);
   assert.ok(h.hooks.PreToolUse, 'PreToolUse must be wired');
+  assert.ok(h.hooks.UserPromptSubmit, 'UserPromptSubmit mints the user\'s grant for /seeks:start|stop|delete');
+  assert.ok(h.hooks.Stop[0].hooks[0].timeout >= 600, 'the Stop hook runs the done-conditions: it needs more than the default timeout');
 });
 test('every command doc has frontmatter, and /seeks:why is shipped', () => {
   const dir = new URL('../commands/', import.meta.url);

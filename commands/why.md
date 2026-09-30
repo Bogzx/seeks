@@ -17,12 +17,15 @@ Every PreToolUse verdict, every Stop-gate verdict and every hook **crash** is ap
    |---|---|---|
    | `git-push` | push/merge/rebase is denied at every level | delivery is `seeks deliver` at L3; otherwise the human merges |
    | `l1-commit` / `l1-edit` | the loop is **L1 = report-only** | write findings under `.seeks/run/<name>/`; ask the user to re-run at L2 to change code |
-   | `hook-owned` | the command touched `status.json` / `hook-state.json` / `decisions.jsonl` | use `seeks status-get` / `status-set` / `why` |
+   | `hook-owned` | the command touched `status.json` / `hook-state.json` / `decisions.jsonl` / `control-grant.json` | use `seeks status-get` / `status-set` / `why` |
+   | `plugin-dir` | the command touched seeks' own code (`hooks/`, `bin/`, `skills/`, `commands/`, `.claude-plugin/`) | only `node <plugin>/bin/seeks.mjs …` may run; the guardrails are not editable from inside a loop |
+   | `grant:*` | the user typed `/seeks:start`, `/seeks:stop` or `/seeks:delete`, which allows one change to a running loop's brakes | nothing — this is the audit trail |
    | `denylist` | the path matched the secret/`.git` denylist | that file is out of bounds; if it's a false positive the user can rename it or widen `denylist` in the loop's status |
    | `outside-worktree` | the edit left the loop's worktree | work inside the worktree only |
    | `strict-bash` | `SEEKS_STRICT_BASH` is on and the command's head wasn't allowlisted | use an allowlisted tool, or the user adds it via `strict_bash_allow` |
    | `wrap-up` | the time budget is spent | only the seeks CLI, `git add`/`commit` and run-dir writes remain — write `summary.md` and end the turn |
    | `stop:*` | the Stop gate released the loop (`done`, `max_iters`, `time-budget`, `stuck`, `needs_human`) | that is why the loop ended |
+   | `continue` with `conditions` | the gate ran the done-conditions itself; a row with `ok:false` is why a certified loop kept going | fix the failing condition; the verifier re-certifies with `seeks certify` |
    | `hook-crash` | **a hook threw and failed open** — enforcement was NOT applied for that call | surface the error verbatim and suggest `/seeks:doctor`, then `/seeks:export` for a bug report |
 
 4. If the user asked about one specific action, quote the matching line(s) and answer the actual question. If nothing matches, say so plainly rather than guessing — an empty log means the hooks never ran for that loop (check `/seeks:doctor`).
