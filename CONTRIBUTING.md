@@ -8,7 +8,7 @@ Thanks for looking. seeks is young — bug reports are worth more than features 
 
 ```
 bin/seeks.mjs        the CLI — the ONLY sanctioned way to write loop state
-hooks/*.mjs          the three hook entrypoints (PreToolUse, Stop, SessionStart)
+hooks/*.mjs          the four hook entrypoints (PreToolUse, Stop, SessionStart, UserPromptSubmit)
 hooks/lib/*.mjs      pure, testable modules — no I/O in the deciding functions
 commands/*.md        the /seeks:* slash commands
 skills/loop/SKILL.md the loop discipline the maker/verifier follow
@@ -35,7 +35,8 @@ Give the deny a stable `rule` id. That id is what lands in `decisions.jsonl` and
 ## Running things
 
 ```bash
-npm test          # the full suite — fast, hermetic, no network, no claude
+npm test          # the full suite — fast, hermetic, no network, no claude (scripts/test.mjs lists test/*.test.mjs; Node <21 can't glob)
+node test/e2e/exhaustive.mjs   # deterministic end-to-end through the real hooks + CLI; free
 npm run e2e       # spawns real `claude -p` children; costs tokens; not run in CI
 ```
 
