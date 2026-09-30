@@ -1,12 +1,16 @@
 import fs from 'node:fs';
 import { hasSeeksNearby, seeksDir, matchLoopByCwd } from './lib/resolve.mjs';
-import { bumpFire, latchRelease } from './lib/hookstate.mjs';
-import { decide } from './lib/gate.mjs';
+import { bumpFire, latchRelease, recordVerification } from './lib/hookstate.mjs';
+import { decide, readyForGateCheck } from './lib/gate.mjs';
 import { composeBanner } from './lib/banner.mjs';
 import { oracleDiffHash } from './lib/oracle.mjs';
 import { appendDecision } from './lib/decisions.mjs';
+import { readStatus, writeStatusAtomic } from './lib/status.mjs';
+import { executableConditions, runConditions, treeFingerprint, applyConditionReject } from './lib/verify.mjs';
 function stdin(){ try { return fs.readFileSync(0,'utf8'); } catch { return ''; } }
 const input = (()=>{ try { return JSON.parse(stdin()); } catch { return {}; } })();
+// Merge into the CURRENT status (the CLI may have written since we read it), atomically.
+const patchStatus = (rd, patch) => writeStatusAtomic(rd, { ...(readStatus(rd) ?? {}), ...patch, updated_at: new Date().toISOString() });
 let runDir = null, sDir = null;                             // hoisted so a crash is still recordable: the run dir if we got
 try {                                                       // fail-open: a hook error must never trap the session
   const cwd = input.cwd || process.cwd();                   // that far, else the plane-level .seeks
@@ -16,18 +20,43 @@ try {                                                       // fail-open: a hook
     if (match){
       runDir = match.runDir;
       const hs = bumpFire(match.runDir, input.session_id ?? null, Date.now());  // own counter + heartbeat
-      let status = match.status;
-      if (status.done === true){                            // only when a certify is pending (rare): is the oracle ack still fresh?
+      // Values only this hook computes: whatever status.json claims for them is discarded.
+      let status = { ...match.status, oracle_live_hash: undefined, conditions_live: undefined };
+      if (status.verifier_certified === true){              // only when a certify is pending (rare): is the oracle ack still fresh?
         try { const od = oracleDiffHash(status.worktree_path, status.base_sha, status.oracle_globs);
-          if (od.files.length > 0) status = { ...status, oracle_live_hash: od.hash };  // ack only required when oracle files actually changed; no change → legacy fail-open → done
+          if (od.files.length > 0) status = { ...status, oracle_live_hash: od.hash };  // ack only required when oracle files actually changed
         } catch {}
       }
+      // The verifier has signed off and every other bar is met: run the done-conditions HERE, in
+      // the worktree, and release `done` only on their exit codes. A tree the gate already
+      // verified (same fingerprint) is not re-run — that is what makes the L3 deliver round-trip
+      // cheap. Any edit changes the fingerprint and forces a fresh run.
+      let ran = null;
+      if (readyForGateCheck(status)){
+        const fp = treeFingerprint(status.worktree_path);
+        const v = hs.verified;
+        if (fp && v && v.ok === true && (v.tree === fp || v.tree_after === fp)) status = { ...status, conditions_live: { ok: true, cached: true } };
+        else {
+          ran = runConditions(executableConditions(status), status.worktree_path, { timeoutSec: status.condition_timeout_sec });
+          recordVerification(match.runDir, { ok: ran.ok, tree: fp, tree_after: treeFingerprint(status.worktree_path), at: Date.now(),
+            results: ran.results.map(({ id, exit, want, ok, ms }) => ({ id, exit, want, ok, ms })) });
+          status = { ...status, conditions_live: { ok: ran.ok, failed: ran.results.filter(r => !r.ok) } };
+        }
+      }
       const d = decide(status, hs, Date.now());
+      if (ran && !ran.ok){                                  // the maker's (or verifier's) "pass" didn't hold up: clear it
+        const f = ran.results.find(r => !r.ok);
+        patchStatus(match.runDir, { verifier_certified: false, done: false, last_verdict: `gate REJECT (${f.id}: exit ${f.exit ?? f.tail})`,
+          ...applyConditionReject(readStatus(match.runDir) ?? {}, f.id) });
+      }
+      if (d.action === 'allow' && d.stopKind === 'done')    // the ONLY writer of done:true
+        patchStatus(match.runDir, { done: true, gate_verified_at: new Date().toISOString() });
       if (d.action === 'allow' && d.stopKind)                  // terminal → latch the release: this banner prints ONCE, then
-        latchRelease(match.runDir, d.stopKind, Date.now());     // matchLoopByCwd skips the loop until /seeks:start reset-fires
+        latchRelease(match.runDir, d.stopKind, Date.now());     // matchLoopByCwd skips the loop until /seeks:start re-arms it
       const banner = composeBanner(status, d, hs.stop_fires, { color: !!process.env.SEEKS_BANNER_COLOR, now: Date.now() });
       appendDecision(match.runDir, { hook:'stop-gate', action: d.action, rule: d.stopKind ? `stop:${d.stopKind}` : 'continue',
         stop_kind: d.stopKind ?? null, reason: d.reason ?? null, stop_fires: hs.stop_fires ?? null,
+        ...(ran ? { conditions: ran.results.map(({ id, exit, ok }) => ({ id, exit, ok })) } : {}),
         session: input.session_id ?? null });   // why the loop kept going (or stopped) is now replayable via `seeks why`
       // Two audiences, two channels. Claude Code surfaces a Stop-block `reason` to the USER
       // (rendered as "Stop hook feedback"), NOT just to the model — so putting the verbose

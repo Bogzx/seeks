@@ -27,6 +27,7 @@ export function buildArgs(o){
 // Reuses the gate's decide() (forcing armed so terminals evaluate) to stay DRY.
 import { decide } from '../../hooks/lib/gate.mjs';
 export function terminalFromStatus(status = {}, hookState = {}){
+  if (status.done === true && status.gate_verified_at) return 'done';   // written only by the Stop gate, after its own condition run
   const d = decide({ ...status, armed: true }, hookState);
   return d.action === 'allow' ? d.stopKind : null;
 }
