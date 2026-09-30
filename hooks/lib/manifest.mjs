@@ -7,11 +7,21 @@
 
 // package.json: what runs the tests, configures the runner, or decides what an import resolves to.
 export const PACKAGE_JSON_ORACLE_KEYS = ['scripts','type','main','exports','imports','workspaces',
-  'jest','vitest','mocha','ava','tap','c8','nyc','jasmine'];
+  'jest','vitest','mocha','ava','tap','c8','nyc','jasmine',
+  'babel','config',                        // a transform config, and the npm_package_config_* values scripts read
+  'overrides','resolutions','pnpm'];       // they swap or patch a TRANSITIVE package (pnpm.patchedDependencies) — the runner's own deps included
+// A dependency whose spec is not a registry range: an alias (`npm:not-jest@1`), a local path, a git
+// URL or a patch. Bumping `^29.0.0` → `^29.7.0` stays free; pointing `jest` somewhere else does not.
+const DEP_SECTIONS = ['dependencies','devDependencies','optionalDependencies','peerDependencies'];
+const REDIRECT_SPEC_RE = /^(?:npm|file|link|portal|patch|exec|git|git\+[a-z]+|github|gitlab|bitbucket|https?):|^[^@\s][^\s]*\/[^\s]+$/i;
 // pyproject.toml tables (and dotted keys under them) that configure tests/coverage/test envs/task runners.
-export const PYPROJECT_ORACLE_TABLES = ['tool.pytest','tool.coverage','tool.tox','tool.nox','tool.hatch.envs','tool.poe','tool.taskipy'];
+export const PYPROJECT_ORACLE_TABLES = ['tool.pytest','tool.coverage','tool.tox','tool.nox','tool.hatch.envs','tool.poe','tool.taskipy',
+  'tool.pdm.scripts','tool.rye.scripts',
+  'tool.mypy','tool.pyright','tool.ruff','tool.pylint',       // what a type/lint check reports (`mypy` clean is a typical done-condition)
+  'project.entry-points.pytest11'];                           // a pytest plugin pytest loads by itself
 // setup.cfg sections: pytest, coverage, tox, and the `setup.py test` alias.
-const SETUP_CFG_ORACLE = (s) => s === 'tool:pytest' || s === 'pytest' || s.startsWith('coverage:') || s.startsWith('tox:') || s === 'aliases';
+const SETUP_CFG_ORACLE = (s) => s === 'tool:pytest' || s === 'pytest' || s.startsWith('coverage:') || s.startsWith('tox:') || s === 'aliases'
+  || s === 'mypy' || s.startsWith('mypy-') || s === 'flake8' || s === 'pycodestyle' || s.startsWith('pylint');
 
 const base = (f) => String(f).split('/').pop().toLowerCase();
 export function manifestKind(file){
@@ -25,7 +35,13 @@ const UNPARSEABLE = (text) => `\u0000unparseable\u0000${text}`;   // can't read 
 function packageJsonView(text){
   let j; try { j = JSON.parse(text); } catch { return UNPARSEABLE(text); }
   if (!j || typeof j !== 'object' || Array.isArray(j)) return UNPARSEABLE(text);
-  return JSON.stringify(canonical(Object.fromEntries(PACKAGE_JSON_ORACLE_KEYS.filter(k => k in j).map(k => [k, j[k]]))));
+  const view = Object.fromEntries(PACKAGE_JSON_ORACLE_KEYS.filter(k => k in j).map(k => [k, j[k]]));
+  for (const sec of DEP_SECTIONS){
+    const d = j[sec]; if (!d || typeof d !== 'object') continue;
+    const redirected = Object.entries(d).filter(([, spec]) => REDIRECT_SPEC_RE.test(String(spec).trim()));
+    if (redirected.length) view[`${sec}:redirected`] = Object.fromEntries(redirected);
+  }
+  return JSON.stringify(canonical(view));
 }
 // A TOML line walker, not a parser: it only has to decide which lines belong to an oracle table,
 // and follow a value across lines (multi-line arrays/inline tables, triple-quoted strings) so a
