@@ -18,8 +18,10 @@ Every PreToolUse verdict, every Stop-gate verdict and every hook **crash** is ap
    | `git-push` | push/merge/rebase is denied at every level | delivery is `seeks deliver` at L3; otherwise the human merges |
    | `l1-commit` / `l1-edit` | the loop is **L1 = report-only** | write findings under `.seeks/run/<name>/`; ask the user to re-run at L2 to change code |
    | `hook-owned` | the command touched `status.json` / `hook-state.json` / `decisions.jsonl` / `control-grant.json` | use `seeks status-get` / `status-set` / `why` |
-   | `plugin-dir` | the command touched seeks' own code (`hooks/`, `bin/`, `skills/`, `commands/`, `.claude-plugin/`) | only `node <plugin>/bin/seeks.mjs …` may run; the guardrails are not editable from inside a loop |
-   | `grant:*` | the user typed `/seeks:start`, `/seeks:stop` or `/seeks:delete`, which allows one change to a running loop's brakes | nothing — this is the audit trail |
+   | `plugin-dir` | the command touched seeks' own code (the plugin root, `hooks/`, `bin/`, `skills/`, `commands/`, `.claude-plugin/`) | only `node <plugin>/bin/seeks.mjs …` may run; the guardrails are not editable from inside a loop |
+   | `grant:*` | the user typed `/seeks:start`, `/seeks:stop` or `/seeks:delete`, which allows one change to the brakes of the loop it names | nothing — this is the audit trail |
+   | `grant-refused:*` | a `/seeks:*` control command arrived from a non-interactive Claude Code (`claude -p`, the SDK), so no grant was minted | type it in an interactive session; if nobody did, a process tried to unlock the loop |
+   | `nested-claude` | the loop tried to start another Claude Code (its prompt would pass for the user's) | drive the loop with the seeks CLI; `/seeks:*` commands are the user's |
    | `denylist` | the path matched the secret/`.git` denylist | that file is out of bounds; if it's a false positive the user can rename it or widen `denylist` in the loop's status |
    | `outside-worktree` | the edit left the loop's worktree | work inside the worktree only |
    | `strict-bash` | `SEEKS_STRICT_BASH` is on and the command's head wasn't allowlisted | use an allowlisted tool, or the user adds it via `strict_bash_allow` |
