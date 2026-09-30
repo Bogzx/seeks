@@ -566,7 +566,9 @@ function isSeeksCli(seg){           // `node /…/bin/seeks.mjs <cmd>` or a dire
 // route except the one sanctioned entrypoint, `node <root>/bin/seeks.mjs`. Same tier as the
 // hook-owned files: by construction for the edit tools, best-effort for Bash.
 const PLUGIN_GUARDED = ['hooks','bin','.claude-plugin','commands','skills'];
-const ROOT_KILLERS = new Set(['rm','rmdir','mv','unlink','shred','chmod','chown']);   // …or take the whole plugin away
+const ROOT_KILLERS = new Set(['rm','rmdir','mv','unlink','shred','chmod','chown',   // …or take the whole plugin away,
+  'ln','link','cp','rsync','tar','install']);                                        // or pivot to it: `ln -s <root> p`, `cp -rl <root> p` (hard links write through)
+const FIND_ACTIONS = new Set(['-delete','-exec','-execdir','-ok','-okdir','-fprint','-fprintf','-fls']);   // `find ~ -name policy.mjs -delete`
 const pluginRootsOf = (ctx) => (Array.isArray(ctx.pluginRoot) ? ctx.pluginRoot : [ctx.pluginRoot])
   .filter(Boolean).map(r => normalizePath(r).replace(/\/+$/, ''));
 function inPluginCode(abs, roots){
@@ -578,6 +580,7 @@ function inPluginCode(abs, roots){
     return PLUGIN_GUARDED.some(g => segMatches(first, g));
   });
 }
+const isRootItself = (abs, roots) => { const a = normalizePath(abs).replace(/\/+$/, '').toLowerCase(); return roots.some(r => r.toLowerCase() === a); };
 const isAncestorOrSelf = (abs, roots) => { const a = normalizePath(abs).replace(/\/+$/, '').toLowerCase();
   return roots.some(r => { const rl = r.toLowerCase(); return rl === a || rl.startsWith(`${a}/`) || (a === '' && rl.startsWith('/')); }); };
 const PLUGIN_VAR_RE = /\$\{?CLAUDE_PLUGIN_ROOT\}?/g;
@@ -597,16 +600,37 @@ function bashTouchesPluginCode(cmd, ctx = {}){
       if (argv.length && CODE_HEADS.has(baseOf(argv[0])) && /<<-?\s*['"]?[A-Za-z_]/.test(seg) && mentions(v)) return true;
       const cli = isSeeksCli(seg) ? head(seg).find(t => SEEKS_CLI_RE.test(t)) : null;
       let skipped = false;
-      const killer = argv.length > 0 && ROOT_KILLERS.has(baseOf(argv[0]));
+      const b = argv.length ? baseOf(argv[0]) : '';
+      const killer = ROOT_KILLERS.has(b) || (b === 'find' && argv.some(t => FIND_ACTIONS.has(t)));
       for (const tok of toks){
         if (cli && !skipped && tok === cli){ skipped = true; continue; }        // the ONE sanctioned touch: running the CLI
         for (const raw of pathCandidates(tok)){
           const abs = resolvePath(cwd, expandPluginVars(raw, roots)); if (abs == null) continue;
           if (inPluginCode(abs, roots)) return true;
+          if (isRootItself(abs, roots)) return true;                                 // `git -C <root> apply`, `find <root> -delete`, `cd <root> && …`
           if (killer && isAncestorOrSelf(abs, roots)) return true;
         }
       }
     }
+  }
+  return false;
+}
+// ─── another Claude Code, started from inside the loop ───────────────────────────────
+// `claude -p "/seeks:stop ui"` from the maker's own Bash is a prompt submission like any other,
+// and its UserPromptSubmit hook minted the user's grant. The hook now refuses non-interactive
+// sessions; this denies the plain spellings of starting a Claude Code at all.
+const CLAUDE_BINS = new Set(['claude','claude-code']);
+const CLAUDE_PKG_RE = /^(?:@anthropic-ai\/claude-code|claude|claude-code)(?:@[^\s]*)?$/i;
+const CLAUDE_JS_RE = /(?:^|[\/\\])(?:@anthropic-ai[\/\\]claude-code[\/\\].*|claude[\/\\]versions[\/\\].*)$/i;
+function bashLaunchesClaude(cmd){
+  for (const v of commandVariants(cmd).list) for (const { argv } of bashPlan(v, null)){
+    if (!argv.length) continue;
+    const b = baseOf(argv[0]), rest = argv.slice(1);
+    if (CLAUDE_BINS.has(b) || CLAUDE_JS_RE.test(argv[0])) return true;
+    const runner = b === 'npx' || b === 'bunx' || b === 'pnpx' || ((b === 'pnpm' || b === 'yarn') && rest[0] === 'dlx')
+      || (b === 'npm' && (rest[0] === 'exec' || rest[0] === 'x'));
+    if (runner && rest.some(t => CLAUDE_PKG_RE.test(t))) return true;
+    if (CODE_HEADS.has(b) && rest.some(t => CLAUDE_JS_RE.test(t))) return true;   // node …/@anthropic-ai/claude-code/cli.js
   }
   return false;
 }
@@ -661,6 +685,7 @@ export function decidePreTool(toolName, toolInput, ctx = {}){
     if (op === 'commit' && level === 'L1') return deny('l1-commit', '[seeks] L1 is report-only: no commits. Write findings under .seeks/run/<name>/.');
     if (bashTouchesHookOwned(cmd, ctx)) return deny('hook-owned', HOOK_OWNED_DENY);
     if (bashTouchesPluginCode(cmd, ctx)) return deny('plugin-dir', PLUGIN_DIR_DENY);
+    if (bashLaunchesClaude(cmd)) return deny('nested-claude', '[seeks] starting another Claude Code from inside a loop is denied: a prompt it submits would pass for the user\'s (e.g. the /seeks:stop grant). The loop is yours to drive with the seeks CLI; the user types /seeks:* commands.');
     if (ctx.strictBash){
       const bad = strictBashOffender(cmd, ctx.strictBashAllow);
       if (bad) return deny('strict-bash', `[seeks] SEEKS_STRICT_BASH is on and '${bad}' is not on the Bash allowlist — denied. Allowed heads: ${STRICT_BASH_ALLOW.join(' ')}. Add more with "strict_bash_allow" in the loop's status (via "seeks status-set <name> '{\\"strict_bash_allow\\":[\\"cargo\\"]}'"), or turn strict mode off for a goal you trust.`);
