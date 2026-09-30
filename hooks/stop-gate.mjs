@@ -52,7 +52,7 @@ try {                                                       // fail-open: a hook
           ...applyConditionReject(readStatus(match.runDir) ?? {}, f.id) });
       }
       if (d.detail === 'oracle-modified'){                  // green, but on a changed oracle: a human decides
-        const last_verdict = `green, but pre-existing oracle files changed: ${status.oracle_modified.join(', ')} — review the diff (to accept: status-set oracle_modified_policy "ack", then /seeks:start)`;
+        const last_verdict = `green, but oracle files changed: ${status.oracle_modified.join(', ')} — review the diff (to accept: status-set oracle_modified_policy "ack", then /seeks:start)`;
         status = { ...status, last_verdict };
         patchStatus(match.runDir, { last_verdict, oracle_modified: status.oracle_modified, needs_human: true });
       }
