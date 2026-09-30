@@ -43,6 +43,7 @@ try {                                                       // fail-open: a hook
           recordVerification(match.runDir, { ok: ran.ok, tree: fp, tree_after: treeFingerprint(status.worktree_path), at: Date.now(),
             results: ran.results.map(({ id, exit, want, ok, ms }) => ({ id, exit, want, ok, ms })) });
           status = { ...status, conditions_live: { ok: ran.ok, failed: ran.results.filter(r => !r.ok) } };
+          if (ran.shell?.warning) appendDecision(match.runDir, { hook:'stop-gate', action:'warn', rule:'condition-shell', reason: ran.shell.warning, session: input.session_id ?? null });
         }
       }
       const d = decide(status, hs, Date.now());

@@ -55,7 +55,7 @@ export function readDecisionsMerged(dirs, opts = {}){
     .sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
   return limit > 0 ? rows.slice(-limit) : rows;
 }
-const MARK = { deny:'✖', block:'✖', crash:'💥' };
+const MARK = { deny:'✖', block:'✖', crash:'💥', warn:'⚠' };
 const subject = (r) => r.tool
   ? `${r.tool}${r.input?.command ? `  ${r.input.command}` : r.input?.file_path ? `  ${r.input.file_path}` : ''}`
   : (r.stop_kind ? `stop → ${r.stop_kind}` : (r.hook ?? '?'));

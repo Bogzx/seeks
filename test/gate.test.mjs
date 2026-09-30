@@ -1,4 +1,5 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { decide } from '../hooks/lib/gate.mjs';
 const base = { loop:'x', armed:true, needs_human:false, done:false, verifier_certified:false,
   open_items:2, no_progress_count:0, max_iters:50, stuck_threshold:3, conditions:[{ id:'tests', cmd:'npm test' }] };
@@ -128,4 +129,32 @@ test('green on a modified pre-existing oracle → needs-human by default; policy
   assert.equal(decide({ ...g, oracle_modified:[] }, hs(1)).stopKind, 'done');
   const red = decide({ ...g, conditions_live:{ ok:false, failed:[{ id:'tests', exit:1 }] } }, hs(1));
   assert.equal(red.action, 'block', 'a red check is still the maker\'s to fix first');
+});
+// ─── review 2026-09-30: which shell runs a done-condition on Windows ──────────────────
+test('resolveConditionShell: POSIX uses sh; Windows finds Git Bash like Claude Code, else cmd.exe with a warning', async () => {
+  const { resolveConditionShell } = await import('../hooks/lib/verify.mjs');
+  const on = (files) => (f) => files.includes(f);
+  const noGit = () => null;
+  assert.deepEqual(resolveConditionShell({ platform:'linux' }), { shell:true, via:'sh', warning:null });
+  let r = resolveConditionShell({ platform:'win32', env:{ CLAUDE_CODE_GIT_BASH_PATH:'D:\\tools\\Git\\bin\\bash.exe' },
+    exists: on(['D:\\tools\\Git\\bin\\bash.exe', 'C:\\Program Files\\Git\\bin\\bash.exe']), gitExecPath: () => 'C:\\Program Files\\Git\\mingw64\\libexec\\git-core' });
+  assert.equal(r.shell, 'D:\\tools\\Git\\bin\\bash.exe'); assert.equal(r.via, 'CLAUDE_CODE_GIT_BASH_PATH');
+  r = resolveConditionShell({ platform:'win32', env:{ CLAUDE_CODE_GIT_BASH_PATH:'D:\\gone\\bash.exe' },
+    exists: on(['C:\\Program Files\\Git\\bin\\bash.exe']), gitExecPath: () => 'C:\\Program Files\\Git\\mingw64\\libexec\\git-core' });
+  assert.equal(r.shell, 'C:\\Program Files\\Git\\bin\\bash.exe', 'a stale env path falls through to git --exec-path'); assert.equal(r.via, 'git --exec-path');
+  r = resolveConditionShell({ platform:'win32', env:{ PATH:'C:\\Windows\\System32;C:\\msys64\\usr\\bin' },
+    exists: on(['C:\\Windows\\System32\\bash.exe', 'C:\\msys64\\usr\\bin\\bash.exe']), gitExecPath: noGit });
+  assert.equal(r.shell, 'C:\\msys64\\usr\\bin\\bash.exe', 'PATH, skipping System32\'s WSL bash'); assert.equal(r.via, 'PATH');
+  r = resolveConditionShell({ platform:'win32', env:{ PATH:'C:\\Windows\\System32' }, exists: on(['C:\\Windows\\System32\\bash.exe']), gitExecPath: noGit });
+  assert.equal(r.shell, true); assert.equal(r.via, 'cmd.exe'); assert.match(r.warning, /cmd\.exe/);
+});
+test('runConditions runs in the shell it is given and reports it (the gate logs its warning)', async () => {
+  const { runConditions } = await import('../hooks/lib/verify.mjs');
+  const shell = { shell: true, via: 'cmd.exe', warning: 'no Git Bash found' };
+  const r = runConditions([{ id:'t', cmd:'node -e "process.exit(0)"' }], process.cwd(), { shell });
+  assert.equal(r.ok, true); assert.deepEqual(r.shell, shell);
+  if (process.platform !== 'win32'){                                  // a real path is honoured: bash-only syntax runs
+    const bash = ['/bin/bash', '/usr/bin/bash'].find(f => fs.existsSync(f));
+    if (bash) assert.equal(runConditions([{ id:'b', cmd:'[[ 1 == 1 ]]' }], process.cwd(), { shell: { shell: bash, via: 'test', warning: null } }).ok, true);
+  }
 });
