@@ -12,7 +12,8 @@ export function buildArgs(o){
     '--permission-mode', o.permissionMode || 'bypassPermissions',
     '--output-format', 'stream-json', '--include-hook-events', '--verbose'];
   if (o.maxTurns != null) a.push('--max-turns', String(o.maxTurns));
-  if (o.sessionId) a.push('--session-id', o.sessionId);
+  if (o.resume) a.push('--resume', o.resume);                  // continue that conversation (after a crash)
+  else if (o.sessionId) a.push('--session-id', o.sessionId);
   if (o.model) a.push('--model', o.model);
   if (o.maxBudgetUsd != null) a.push('--max-budget-usd', String(o.maxBudgetUsd));
   return a;

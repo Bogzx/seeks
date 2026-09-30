@@ -16,6 +16,8 @@ skills/loop/SKILL.md the loop discipline the maker/verifier follow
 test/*.test.mjs      node:test, one file per module
 test/e2e/            spawns real `claude -p` children — not run in CI (exhaustive.mjs is the model-free exception, and is)
 test/fixtures/fake-claude.mjs   a model-free stand-in for `claude -p` that drives the REAL stop hook; test/run.test.mjs puts it on PATH
+test/fixtures/fake-docker.mjs   a stand-in for `docker run`/`kill` (only -e env reaches the "container") for the --container tests
+docker/Dockerfile    the maker image for `seeks run --container`
 bench/               the benchmark harness (tasks, runner, results table) — needs credits, never run in CI
 ```
 

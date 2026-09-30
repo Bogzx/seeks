@@ -59,7 +59,7 @@ const USAGE = `seeks <cmd> <name> [args]
   oracle-diff <name>            oracle-ack <name>                   deliver <name>
   tier-get                      tier-set <light|balanced|all-out>   role <name>
   why <name> [--last N] [--denied] [--crashes] [--tool T] [--rule R] [--json]
-  start <name> [--budget <dur>] [--max-iters N]    stop <name>    certify <name>
+  start <name> [--budget <dur>] [--max-iters N] [--resume]    stop <name>    certify <name>
   run <name> [--goal "<text>" --check "<cmd>"…] [--budget <dur>] [--max-iters N] [--strict] [--dry-run]
                                 headless: drive the loop with a separate "claude -p" maker; exit 0 only on done
   preflight                     --version`;
@@ -204,11 +204,15 @@ switch (cmd) {
     const g = consumeGrant(seeksDir());                        // spend any grant: it was for this start
     if ((liveOf(rd).live || overlap.length) && !g)
       die(`refusing to start "${name}": ${overlap.length ? `live loop(s) ${overlap.join(', ')} already gate this worktree` : 'it is already live'}. ${GRANT_HINT}`);
-    const patch = { armed:true, done:false, verifier_certified:false, needs_human:false, no_progress_count:0, started_at: Date.now() };
+    // --resume (used by `seeks run --resume` after a crash): re-arm WITHOUT a fresh budget — the
+    // iteration counter, the clock and the guards carry on. Only for a loop the gate never released.
+    const resume = a.includes('--resume');
+    if (resume && readHookState(rd)?.released) die(`"${name}" already ended (${readHookState(rd).released}) — start it fresh, without --resume`);
+    const patch = resume ? { armed:true } : { armed:true, done:false, verifier_certified:false, needs_human:false, no_progress_count:0, started_at: Date.now() };
     if (flag('--budget') != null){ const sec = parseDuration(flag('--budget')); if (!sec) die(`bad --budget: ${flag('--budget')}`); patch.time_budget_sec = sec; }
     if (flag('--max-iters') != null){ const n = parseInt(flag('--max-iters'),10); if (!(n > 0)) die(`bad --max-iters: ${flag('--max-iters')}`); patch.max_iters = n; }
     writeStatusAtomic(rd, { ...st, ...patch, updated_at: nowIso() });
-    resetFires(rd);                                            // fresh iteration budget + clear the release latch
+    if (!resume) resetFires(rd);                               // fresh iteration budget + clear the release latch
     out('ok'); break; }
   case 'stop': {            // disarm; on a live loop only with the user's grant
     const rd = rdOf(a[0]); const st = readStatus(rd); if (!st) die(`no loop "${a[0]}"`);
