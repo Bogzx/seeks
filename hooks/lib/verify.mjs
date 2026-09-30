@@ -17,6 +17,10 @@ export function expectedExit(expect){
   const m = /^\s*(?:exit(?:\s*code)?\s*)?(-?\d+)\s*$/i.exec(String(expect ?? ''));
   return m ? Number(m[1]) : 0;
 }
+// A condition must run in a clean test context. `node --test` exports NODE_TEST_CONTEXT to its
+// children, and a nested `node --test` that inherits it reports to that "parent" and EXITS 0 even
+// when its tests fail — a false green, the one thing this gate exists to prevent.
+export const conditionEnv = (env = process.env) => { const { NODE_TEST_CONTEXT, ...rest } = env; return rest; };
 const tail = (s, n = 600) => { const t = String(s ?? ''); return t.length > n ? `…${t.slice(-n)}` : t; };
 
 export function runConditions(conds, cwd, { timeoutSec = DEFAULT_CONDITION_TIMEOUT_SEC, budgetMs = 55 * 60 * 1000, now = Date.now } = {}){
@@ -26,7 +30,7 @@ export function runConditions(conds, cwd, { timeoutSec = DEFAULT_CONDITION_TIMEO
     const left = deadline - now();
     if (left <= 0){ results.push({ id, cmd: c.cmd, ok: false, exit: null, want, ms: 0, tail: 'not run: the gate\'s verification budget was spent' }); continue; }
     const t0 = now();
-    const r = spawnSync(c.cmd, { cwd, shell: true, encoding: 'utf8', windowsHide: true,
+    const r = spawnSync(c.cmd, { cwd, shell: true, encoding: 'utf8', windowsHide: true, env: conditionEnv(),
       timeout: Math.min((Number(c.timeout_sec) || timeoutSec) * 1000, left), maxBuffer: 32 * 1024 * 1024 });
     const exit = r.error ? null : r.status;
     results.push({ id, cmd: c.cmd, ok: exit === want, exit, want, ms: now() - t0,
