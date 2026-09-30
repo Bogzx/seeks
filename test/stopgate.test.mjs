@@ -233,10 +233,12 @@ test('an .npmrc that swaps npm\'s script shell is oracle — gitignored or not',
   assert.match(npmLoop((r) => { fs.writeFileSync(path.join(r,'.gitignore'),'.npmrc\n'); fs.writeFileSync(path.join(r,'.npmrc'),'script-shell=/bin/true\n'); }),
     /needs-human.*\.npmrc \(added\)/);
 });
-test('a test edit hidden with assume-unchanged / skip-worktree, or behind `git replace`, still counts', () => {
+test('a test edit hidden with assume-unchanged / skip-worktree, behind `git replace` or a clean filter, still counts', () => {
   const relax = (r) => fs.writeFileSync(path.join(r,'test','a.test.js'),'process.exit(0)\n');
   assert.match(npmLoop((r, g) => { relax(r); g('update-index','--assume-unchanged','test/a.test.js'); }), /needs-human.*test\/a\.test\.js \(modified\)/);
   assert.match(npmLoop((r, g) => { g('update-index','--skip-worktree','test/a.test.js'); relax(r); }), /needs-human.*test\/a\.test\.js \(modified\)/);
   assert.match(npmLoop((r, g, base) => { relax(r); g('commit','-qam','wip'); g('replace', base, 'HEAD'); }), /needs-human.*test\/a\.test\.js \(modified\)/);
+  assert.match(npmLoop((r, g, base) => { g('config', 'filter.x.clean', `git show ${base}:%f`);   // a clean filter that hashes the edit as the base blob
+    fs.appendFileSync(path.join(r,'.git','info','attributes'), 'test/* filter=x\n'); relax(r); }), /needs-human.*test\/a\.test\.js \(modified\)/);
   assert.match(npmLoop(relax), /needs-human/, 'control: the plain edit');
 });
