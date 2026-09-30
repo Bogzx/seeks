@@ -21,22 +21,46 @@ export function expectedExit(expect){
 // children, and a nested `node --test` that inherits it reports to that "parent" and EXITS 0 even
 // when its tests fail — a false green, the one thing this gate exists to prevent.
 export const conditionEnv = (env = process.env) => { const { NODE_TEST_CONTEXT, ...rest } = env; return rest; };
+// Which shell runs a condition. On POSIX, /bin/sh (node's `shell: true`). On Windows node's default
+// is cmd.exe, but the conditions were written for, and verified in, Claude Code's Bash tool, which
+// is Git Bash there: `test -f x`, `A=1 cmd` or single quotes fail in cmd.exe on every gate run.
+// So find Git Bash the way Claude Code does: CLAUDE_CODE_GIT_BASH_PATH, then the bash.exe of the
+// git on PATH (`git --exec-path` is <Git>/mingw64/libexec/git-core), then bash.exe on PATH (not
+// System32's, which is WSL). None found → cmd.exe, with a warning the gate logs.
+const WSL_BASH_RE = /[\\/]windows[\\/]system32[\\/]/i;
+export function resolveConditionShell({ platform = process.platform, env = process.env, exists = (f) => { try { return fs.statSync(f).isFile(); } catch { return false; } },
+  gitExecPath = () => { try { return execFileSync('git', ['--exec-path'], { encoding: 'utf8', stdio: ['ignore','pipe','ignore'], windowsHide: true }).trim(); } catch { return null; } } } = {}){
+  if (platform !== 'win32') return { shell: true, via: 'sh', warning: null };
+  const P = path.win32;
+  const explicit = env.CLAUDE_CODE_GIT_BASH_PATH;
+  if (explicit && exists(explicit)) return { shell: explicit, via: 'CLAUDE_CODE_GIT_BASH_PATH', warning: null };
+  const exec = gitExecPath();
+  if (exec){
+    const gitRoot = P.resolve(exec, '..', '..', '..');
+    for (const c of [P.join(gitRoot, 'bin', 'bash.exe'), P.join(gitRoot, 'usr', 'bin', 'bash.exe')]) if (exists(c)) return { shell: c, via: 'git --exec-path', warning: null };
+  }
+  for (const dir of String(env.PATH ?? env.Path ?? '').split(';').filter(Boolean)){
+    const c = P.join(dir, 'bash.exe');
+    if (!WSL_BASH_RE.test(c) && exists(c)) return { shell: c, via: 'PATH', warning: null };
+  }
+  return { shell: true, via: 'cmd.exe', warning: 'no Git Bash found (CLAUDE_CODE_GIT_BASH_PATH, git --exec-path, PATH): done-conditions run in cmd.exe, so bash syntax in them will fail. Install Git for Windows or set CLAUDE_CODE_GIT_BASH_PATH.' };
+}
 const tail = (s, n = 600) => { const t = String(s ?? ''); return t.length > n ? `…${t.slice(-n)}` : t; };
 
-export function runConditions(conds, cwd, { timeoutSec = DEFAULT_CONDITION_TIMEOUT_SEC, budgetMs = 55 * 60 * 1000, now = Date.now } = {}){
+export function runConditions(conds, cwd, { timeoutSec = DEFAULT_CONDITION_TIMEOUT_SEC, budgetMs = 55 * 60 * 1000, now = Date.now, shell = resolveConditionShell() } = {}){
   const results = []; const deadline = now() + budgetMs;
   for (const c of conds){
     const id = String(c.id ?? c.cmd); const want = expectedExit(c.expect);
     const left = deadline - now();
     if (left <= 0){ results.push({ id, cmd: c.cmd, ok: false, exit: null, want, ms: 0, tail: 'not run: the gate\'s verification budget was spent' }); continue; }
     const t0 = now();
-    const r = spawnSync(c.cmd, { cwd, shell: true, encoding: 'utf8', windowsHide: true, env: conditionEnv(),
+    const r = spawnSync(c.cmd, { cwd, shell: shell.shell, encoding: 'utf8', windowsHide: true, env: conditionEnv(),
       timeout: Math.min((Number(c.timeout_sec) || timeoutSec) * 1000, left), maxBuffer: 32 * 1024 * 1024 });
     const exit = r.error ? null : r.status;
     results.push({ id, cmd: c.cmd, ok: exit === want, exit, want, ms: now() - t0,
       tail: r.error ? String(r.error.code || r.error.message) : tail(`${r.stdout ?? ''}${r.stderr ?? ''}`) });
   }
-  return { ok: results.length > 0 && results.every(r => r.ok), results };
+  return { ok: results.length > 0 && results.every(r => r.ok), results, shell };
 }
 
 // Content fingerprint of the worktree (HEAD + every dirty or untracked file's blob), so a pass

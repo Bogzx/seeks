@@ -86,7 +86,7 @@ The default list is inspection tools (`ls cat grep rg find sed awk diff …`), t
 
 ## Requirements
 
-**Node ≥18 and git on the _hook's_ `PATH`.** Install Node system-wide, **not** via nvm/fnm/asdf — version managers only reach interactive shells, so hooks fail with `node not found`. (On nvm: `sudo ln -s "$(command -v node)" /usr/local/bin/node`.) `/seeks:doctor` diagnoses it and prints the fix. For L3 PRs, authenticate `gh`.
+**Node ≥18 and git on the _hook's_ `PATH`.** Install Node system-wide, **not** via nvm/fnm/asdf — version managers only reach interactive shells, so hooks fail with `node not found`. (On nvm: `sudo ln -s "$(command -v node)" /usr/local/bin/node`.) `/seeks:doctor` diagnoses it and prints the fix. For L3 PRs, authenticate `gh`. **On Windows** the Stop hook runs your done-conditions in Git Bash, as Claude Code's Bash tool does (found via `CLAUDE_CODE_GIT_BASH_PATH`, then the `git` on `PATH`, then `bash.exe` on `PATH`). Without Git Bash it falls back to cmd.exe and logs a `condition-shell` warning that `/seeks:why` shows.
 
 **"Leave it running" means leaving the Claude Code session open.** The loop is driven by the Stop hook of that session. If a long run halts after about 8 passes while it is still making progress, add `"env": {"CLAUDE_CODE_STOP_HOOK_BLOCK_CAP": "0"}` to `~/.claude/settings.json`. A plugin cannot set that itself. The Stop hook runs your done-conditions when the loop certifies, so that stop takes as long as your checks do (the hook's timeout is 1 hour; each condition defaults to 10 minutes, and `timeout_sec` raises it).
 
