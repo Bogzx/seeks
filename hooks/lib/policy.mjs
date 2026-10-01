@@ -706,15 +706,17 @@ export function decidePreTool(toolName, toolInput, ctx = {}){
   }
   if (!EDIT_TOOLS.has(toolName)) return allow;
   const p = targetPath(toolName, toolInput); if (!p) return allow;
-  const platform = ctx.platform ?? process.platform;                    // case-folded on win32/darwin (paths.mjs::foldsCase)
+  // Deny matches fold case on win32 and darwin (paths.mjs::foldsCase); containment, which ALLOWS,
+  // folds on win32 only — on a case-sensitive macOS volume `/x/WT` is not inside `/x/wt`.
+  const platform = ctx.platform ?? process.platform, foldIn = platform === 'win32';
   const abs = canon(p, platform);
   if (isHookOwnedFile(abs)) return deny('hook-owned', HOOK_OWNED_DENY);
   if (inPluginCode(abs, pluginRootsOf(ctx))) return deny('plugin-dir', PLUGIN_DIR_DENY);
-  if (ctx.runDir && isInside(abs, ctx.runDir, platform)) return allow;  // run-dir allow-zone
+  if (ctx.runDir && isInside(p, ctx.runDir, platform, foldIn)) return allow;   // run-dir allow-zone
   const rel = relTo(abs, ctx.worktreePath, platform);
   if (rel != null && anyGlob(rel, effectiveDenylist(ctx.denylist), platform))
     return deny('denylist', `[seeks] '${rel}' is on the denylist — refusing to edit.`);
-  if (ctx.worktreePath && !isInside(abs, ctx.worktreePath, platform)) return deny('outside-worktree', '[seeks] edits must stay inside the loop worktree.');
+  if (ctx.worktreePath && !isInside(p, ctx.worktreePath, platform, foldIn)) return deny('outside-worktree', '[seeks] edits must stay inside the loop worktree.');
   if (level === 'L1') return deny('l1-edit', '[seeks] L1 is report-only: no source edits. Write findings under .seeks/run/<name>/.');
   if (wrapUp) return deny('wrap-up', '[seeks] time budget reached — only summary/run-dir writes allowed; stop editing source and end your turn.');
   return allow;

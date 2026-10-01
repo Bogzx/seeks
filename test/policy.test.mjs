@@ -592,7 +592,11 @@ test('darwin folds case for the denylist and confinement, like win32; linux does
   const c = { level:'L2', worktreePath:'/Users/me/repo/.claude/worktrees/ui', runDir:'/Users/me/repo/.seeks/run/ui', denylist: DEFAULT_DENYLIST };
   for (const f of ['.ENV', '.Env.local', 'config/Secrets/key.txt', 'deploy/ID_RSA'])
     assert.equal(decidePreTool('Write', edit(`${c.worktreePath}/${f}`), { ...c, platform:'darwin' }).rule, 'denylist', f);
-  assert.equal(decidePreTool('Write', edit('/users/ME/repo/.claude/worktrees/ui/src/a.js'), { ...c, platform:'darwin' }).action, 'allow', 'same dir, other case');
   assert.equal(decidePreTool('Write', edit('/Users/me/repo/.claude/worktrees/ui/src/a.js'), { ...c, platform:'darwin' }).action, 'allow');
+  // Containment does NOT fold on darwin: on a case-sensitive volume these are other directories.
+  // (On a default, case-insensitive volume realpath hands back the on-disk case, so a real path matches.)
+  assert.equal(decidePreTool('Write', edit('/Users/me/repo/.claude/worktrees/UI/src/a.js'), { ...c, platform:'darwin' }).rule, 'outside-worktree');
+  assert.equal(decidePreTool('Write', edit('/Users/me/repo/.seeks/run/UI/notes.md'), { ...c, platform:'darwin' }).rule, 'outside-worktree', 'not the run-dir allow zone');
+  assert.equal(decidePreTool('Write', edit('/Users/me/repo/.seeks/run/ui/notes.md'), { ...c, platform:'darwin' }).action, 'allow');
   assert.equal(decidePreTool('Write', edit(`${c.worktreePath}/.ENV`), { ...c, platform:'linux' }).action, 'allow', 'a different file on linux');
 });

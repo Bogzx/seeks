@@ -148,4 +148,7 @@ test('on a case-insensitive filesystem the real hook denies .ENV and Secrets/ li
     assert.equal(out.hookSpecificOutput.permissionDecision, 'deny', f);
   }
   assert.equal(run(wt, { tool_name:'Write', tool_input:{ file_path: path.join(wt,'SRC','a.js') } }), '', 'other edits are allowed');
+  // Containment compares exact case off win32, so this passes only because realpath returns the
+  // on-disk case of the worktree when the model spells it `UI`.
+  assert.equal(run(wt, { tool_name:'Write', tool_input:{ file_path: path.join(path.dirname(wt),'UI','src','b.js') } }), '', 'the worktree spelled in another case');
 });
