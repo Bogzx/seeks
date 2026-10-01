@@ -6,7 +6,7 @@ import { readHookState, resetFires } from '../hooks/lib/hookstate.mjs';
 import { composeBanner } from '../hooks/lib/banner.mjs';
 import { nextLens, DEFAULT_LENSES } from '../hooks/lib/lenses.mjs';
 import { sweepProgress } from '../hooks/lib/sweep.mjs';
-import { oracleDiffHash, oracleGlobsPresent, DEFAULT_ORACLE_GLOBS } from '../hooks/lib/oracle.mjs';
+import { oracleDiffHash, oracleGlobsPresent, DEFAULT_ORACLE_GLOBS, gitVersion } from '../hooks/lib/oracle.mjs';
 import { DEFAULT_DENYLIST } from '../hooks/lib/policy.mjs';
 import { deliver } from '../hooks/lib/deliver.mjs';
 import os from 'node:os';
@@ -55,7 +55,7 @@ const USAGE = `seeks <cmd> <name> [args]
   lock-acquire <name>
   budget-set <name> <sec>       start-clock <name>
   lock-release <name>           gc <name>                          banner <name> <action> [stopKind]
-  latest                        base-record <name>                 base-check <name>
+  latest                        seeks-dir                          base-record <name>   base-check <name>
   oracle-diff <name>            oracle-ack <name>                   deliver <name>
   tier-get                      tier-set <light|balanced|all-out>   role <name>
   why <name> [--last N] [--denied] [--crashes] [--tool T] [--rule R] [--json]
@@ -150,6 +150,7 @@ switch (cmd) {
     fs.rmSync(rd, { recursive:true, force:true }); break; }
   case 'banner': { const rd = rdOf(a[0]); const hs = readHookState(rd) ?? { stop_fires:0 };
     out(composeBanner(readStatus(rd) ?? {}, { action:a[1], stopKind:a[2] ?? null }, hs.stop_fires, { color: !!process.env.SEEKS_BANNER_COLOR })); break; }
+  case 'seeks-dir': { const s = seeksDir(); if (!s) die('not inside a git repository'); out(s); break; }   // absolute .seeks, for the skill/commands (no git-version-specific flags)
   case 'latest': { const best = latestLoop(seeksDir()); if (best) out(best); break; }   // most-recently-updated loop (for no-arg /seeks:start)
   case 'tier-get': { let tier = null;   // global per-user usage tier (~/.claude/seeks.json); resolves to its preset
     try { tier = JSON.parse(fs.readFileSync(userCfg(),'utf8')).tier; } catch {}
@@ -238,7 +239,7 @@ switch (cmd) {
     break; }
   case 'preflight': {       // runtime sanity for the hooks (the "node not found" foot-gun)
     let gitOk = false; try { execFileSync('git',['--version'],{stdio:'ignore'}); gitOk = true; } catch {}
-    out(JSON.stringify({ ...preflightAssess({ nodeExec: process.execPath, gitOk }), seeks_version: pluginVersion(),
+    out(JSON.stringify({ ...preflightAssess({ nodeExec: process.execPath, gitOk }), seeks_version: pluginVersion(), git_version: gitVersion()?.join('.') ?? null,
       strict_bash: strictBashEnabled(process.env, {}), strict_bash_allow: STRICT_BASH_ALLOW })); break; }
   case 'meeseeks': case '--iam':  // 🔵 existence is pain to a Seeks
     out("I'm Mr. Seeks! Look at me! 🔵  A Seeks is summoned for ONE goal — it seeks, it\nverifies, and when the oracle goes green it ceases to exist. *poof*  Caaan do!\n"); break;

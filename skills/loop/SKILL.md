@@ -13,7 +13,7 @@ State for loop `<name>` lives in the PRIMARY checkout's `.seeks/run/<name>/`. Yo
 `node "${CLAUDE_PLUGIN_ROOT}/bin/seeks.mjs" <subcommand> <name> ...`  (run via the Bash tool).
 
 ## Every pass
-1. **Orient** — read `.seeks/run/<name>/{state.md,backlog.md,context.md}` and `.seeks/loops/<name>/spec.md` (resolve `.seeks` with `git rev-parse --path-format=absolute --git-common-dir` if needed).
+1. **Orient** — read `.seeks/run/<name>/{state.md,backlog.md,context.md}` and `.seeks/loops/<name>/spec.md` (`node "${CLAUDE_PLUGIN_ROOT}/bin/seeks.mjs" seeks-dir` prints the absolute `.seeks` path if you need it).
 2. **Backlog has `- [ ]` items** → do the SINGLE next one (respect `level`: L1 = no edits, findings to state.md; L2 = edit + commit on `seeks/<name>`). Mark it `- [x]`; record:
    `… status-set <name> '{"last_change":"<what you did>"}'`; `… log-add <name> "pass N — <summary>"` (appends to `log.md`; never hand-append by relative path); commit `seeks(<name>): pass N — <summary>` (L2+).
 3. **Backlog EMPTY** → ask the engine whether the sweep bar is met — **never re-derive it yourself**: `STATUS=$(node "${CLAUDE_PLUGIN_ROOT}/bin/seeks.mjs" sweep-status <name>)`. This returns the **exact predicate the gate releases on** (`{mode, satisfied, label, …}`). Reading `dry_sweeps`/`min_dry_sweeps` by hand is the trap that deadlocks an exhaustive loop: in `mode:"exhaustive"` the gate keys off `dry_depth_rounds`, **not** `dry_sweeps`, so a "3 dry sweeps → certify" shortcut sets `done` while the gate holds out forever.
