@@ -43,6 +43,8 @@ test('the repo carries the community-health files a public plugin needs', () => 
 test('the README ships small enough to render — the logo is not a megabyte', () => {
   const png = fs.statSync(new URL('../assets/seeks.png', import.meta.url));
   assert.ok(png.size < 120_000, `assets/seeks.png is ${png.size} bytes; it renders at 240px wide`);
+  const gif = fs.statSync(new URL('../assets/demo.gif', import.meta.url));   // asciinema + agg of `node examples/demo.mjs --pace 450`
+  assert.ok(gif.size < 300_000, `assets/demo.gif is ${gif.size} bytes; re-render it smaller (fewer frames, smaller font)`);
 });
 test('CI tests every Node major that package.json engines promises, and pins actions by SHA', () => {
   const ci = fs.readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
