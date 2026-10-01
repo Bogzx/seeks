@@ -19,6 +19,10 @@ test/fixtures/fake-claude.mjs   a model-free stand-in for `claude -p` that drive
 test/fixtures/fake-docker.mjs   a stand-in for `docker run`/`kill` (only -e env reaches the "container") for the --container tests
 docker/Dockerfile    the maker image for `seeks run --container`
 bench/               the benchmark harness (tasks, runner, results table) — needs credits, never run in CI
+examples/demo.mjs    the README's model-free demo: a scripted maker against the real hooks; CI runs it
+examples/add/        the smallest real goal (the demo's project, and the copy-paste first run)
+GUARANTEES.md        the coverage table: what is enforced, what is best-effort, what is deliberately open
+CHANGELOG.md         one section per released version
 ```
 
 ## Rules that are not negotiable
@@ -46,13 +50,25 @@ npm run sync-docs # regenerate doc copies of code values (the default denylist i
 npm run e2e       # spawns real `claude -p` children; costs tokens; not run in CI
 ```
 
-CI runs `npm test` and the deterministic e2e on Node 18/20/22/24 on Linux and on Node 20 on Windows. The oldest leg tracks `engines.node` (a test pins the two together), and actions are pinned by commit SHA. The Windows leg exists because `hooks/lib/paths.mjs` and `hooks/lib/glob.mjs` have `win32` case-folding branches — if you touch path or glob handling, that leg is the one that matters.
+CI runs `npm test`, the demo and the deterministic e2e on Node 18/20/22/24 on Linux, Node 20 on Windows, Node 22 on macOS, and Node 18 on Debian 11 (git 2.30). The oldest Node leg tracks `engines.node` (a test pins the two together), and actions are pinned by commit SHA. The Windows and macOS legs exist because `hooks/lib/paths.mjs` and `hooks/lib/glob.mjs` fold case there; the Debian leg because git < 2.31 lacks flags newer gits have. If you touch path, glob or git handling, those are the legs that matter.
 
 ## Commits and PRs
 
 - Conventional-ish subjects (`fix(policy):`, `feat:`, `docs:`, `chore(ci):`).
 - The body says **what was wrong**, cites `file:line`, and says how it's now proven. Look at `git log` — the bar is a paragraph, not a sentence.
 - Never commit a credential, and never commit anything under `.seeks/run/` or `.claude/worktrees/`.
+
+## Releasing
+
+Claude Code keys an installed plugin on the `version` in `.claude-plugin/plugin.json`: commits pushed under an unchanged version never reach anyone who already installed it. So:
+
+1. A PR that changes `hooks/`, `bin/`, `skills/`, `commands/` or `plugin.json` bumps the version in `plugin.json` **and** `package.json` (a test keeps them equal) and adds a `## x.y.z` section to `CHANGELOG.md` (a test checks it exists). The `version-bump` workflow (`scripts/check-version-bump.mjs`) fails the PR otherwise; label it `no-version-bump` for a change that needs no release.
+2. So every such merge to `main` reaches installed users with its own version (a patch bump is enough). Tags mark the versions you announce; not every bump needs one.
+3. After the merge, tag and publish from `main`:
+   ```bash
+   git tag -a v0.2.0 -m "seeks 0.2.0" origin/main && git push origin v0.2.0
+   gh release create v0.2.0 --title "seeks 0.2.0" --notes "See CHANGELOG.md#020--2026-10-01"
+   ```
 
 ## Reporting a bug
 

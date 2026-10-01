@@ -1,11 +1,21 @@
 {
   "name": "seeks",
-  "owner": { "name": "bogdan" },
+  "owner": {
+    "name": "Bogdan Truta",
+    "url": "https://bogdantruta.com"
+  },
+  "description": "seeks: a Claude Code plugin that runs one goal in a loop until checks you define pass, verified by the Stop hook itself.",
   "plugins": [
     {
       "name": "seeks",
       "source": ".",
-      "description": "Self-running Claude Code loops on a throwaway worktree: hooks hold the budget, and done is released only when the hook itself re-runs your checks green."
+      "description": "Self-running Claude Code loops on a throwaway worktree: hooks hold the budget, and done is released only when the hook itself re-runs your checks green.",
+      "category": "development",
+      "tags": [
+        "autonomous-agents",
+        "guardrails",
+        "verification"
+      ]
     }
   ]
 }

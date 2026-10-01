@@ -1,7 +1,20 @@
 {
   "name": "seeks",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Self-running Claude Code loops on a throwaway worktree: hooks hold the budget, and done is released only when the hook itself re-runs your checks green.",
+  "author": {
+    "name": "Bogdan Truta",
+    "url": "https://bogdantruta.com"
+  },
+  "homepage": "https://github.com/Bogzx/seeks#readme",
+  "repository": "https://github.com/Bogzx/seeks",
   "license": "MIT",
-  "homepage": "https://github.com/Bogzx/seeks#readme"
+  "keywords": [
+    "autonomous",
+    "agent-loop",
+    "verifier",
+    "guardrails",
+    "stop-hook",
+    "git-worktree"
+  ]
 }

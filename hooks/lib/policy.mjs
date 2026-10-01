@@ -624,9 +624,39 @@ const CLAUDE_PKG_RE = /^(?:@anthropic-ai\/claude-code|claude|claude-code)(?:@[^\
 const CLAUDE_JS_RE = /(?:^|[\/\\])(?:@anthropic-ai[\/\\]claude-code[\/\\].*|claude[\/\\]versions[\/\\].*)$/i;
 // `seeks run` is one of those spellings: it spawns `claude -p` (or whatever `--claude` names) with
 // bypassPermissions, through the one CLI the plugin-dir rule lets the maker run.
-function seeksCliSub(argv){
+// The same goes for the `seeks` that `npm install -g` / `npx …` put on PATH. A package runner is
+// read the way it runs: `-p`/`--package` name packages, then the first non-flag word (after an
+// optional `--`) is the command, and `-c "<cmd>"` is a command string, judged like any other.
+// A spec this can't recognise (a local path, a renamed fork) is the known Bash-tier gap.
+const SEEKS_PKG_RE = /^(?:seeks(?:@[^\s/]*)?|(?:github:)?bogzx\/seeks(?:#.*)?|(?:git\+)?(?:https?|ssh|git):\/\/(?:[^@/]+@)?github\.com\/bogzx\/seeks(?:\.git)?(?:#.*)?|git@github\.com:bogzx\/seeks(?:\.git)?(?:#.*)?)$/i;
+const RUNNER_TAKES_VALUE = new Set(['--cache','--registry','--userconfig','--prefix','--workspace','-w','--node-options','--shell','--script-shell']);
+function runnerArgs(argv){                 // the args after `npx` / `npm exec` / `pnpm dlx` … or null
+  const b = baseOf(argv[0]), rest = argv.slice(1);
+  if (b === 'npx' || b === 'bunx' || b === 'pnpx') return rest;
+  if ((b === 'pnpm' || b === 'yarn') && rest[0] === 'dlx') return rest.slice(1);
+  if (b === 'npm' && (rest[0] === 'exec' || rest[0] === 'x')) return rest.slice(1);
+  return null;
+}
+function seeksCliSub(argv, depth = 0){
   if (!argv.length) return null;
-  if (SEEKS_CLI_RE.test(argv[0])) return argv[1] ?? null;
+  if (SEEKS_CLI_RE.test(argv[0]) || baseOf(argv[0]) === 'seeks') return argv[1] ?? null;
+  const rest = runnerArgs(argv);
+  if (rest){
+    let pkg = false, i = 0;
+    for (; i < rest.length; i++){
+      const t = rest[i];
+      if (t === '--'){ i++; break; }
+      if (t === '-p' || t === '--package'){ pkg = pkg || SEEKS_PKG_RE.test(rest[i + 1] ?? ''); i++; continue; }
+      if (t.startsWith('--package=')){ pkg = pkg || SEEKS_PKG_RE.test(t.slice(10)); continue; }
+      if ((t === '-c' || t === '--call') && depth < 2)      // `npx -p seeks -c "seeks run x"`
+        return bashSegments(rest[i + 1] ?? '').some(seg => seeksCliSub(head(seg), depth + 1) === 'run') ? 'run' : null;
+      if (RUNNER_TAKES_VALUE.has(t)){ i++; continue; }
+      if (t.startsWith('-')) continue;
+      break;
+    }
+    const cmd = rest[i];
+    return cmd != null && (SEEKS_PKG_RE.test(cmd) || (pkg && baseOf(cmd) === 'seeks')) ? (rest[i + 1] ?? null) : null;
+  }
   if (baseOf(argv[0]) !== 'node') return null;
   const i = argv.findIndex((t, j) => j > 0 && !t.startsWith('-'));     // the same script pick as isSeeksCli
   return i !== -1 && SEEKS_CLI_RE.test(argv[i]) ? (argv[i + 1] ?? null) : null;

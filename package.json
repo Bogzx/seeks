@@ -1,6 +1,6 @@
 {
   "name": "seeks",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Self-running Claude Code loops — point it at one goal and leave it running. Deterministic hooks hold the budget and the guardrails; done is released only when the hook itself re-runs your checks green.",
   "license": "MIT",
   "author": "Bogdan Truta",
@@ -9,6 +9,7 @@
   "bugs": { "url": "https://github.com/Bogzx/seeks/issues" },
   "keywords": ["claude", "claude-code", "claude-code-plugin", "agent", "autonomous", "hooks", "verifier", "guardrails"],
   "type": "module",
+  "bin": { "seeks": "bin/seeks.mjs" },
   "engines": { "node": ">=18" },
   "scripts": {
     "test": "node scripts/test.mjs",
