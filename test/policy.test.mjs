@@ -545,14 +545,19 @@ test('`seeks run` from inside a loop is nested Claude Code too — every spellin
   for (const cmd of [`node ${ROOT}/bin/seeks.mjs run x --goal y --check true`, `node "$CLAUDE_PLUGIN_ROOT/bin/seeks.mjs" run x --goal y --check true`,
     `node ${ROOT}/bin/seeks.mjs run x --goal y --check true --claude /tmp/c`, `nohup node ${ROOT}/bin/seeks.mjs run x --resume &`,
     `sh -c "node ${ROOT}/bin/seeks.mjs run x"`, `${ROOT}/bin/seeks.mjs run x`, `node --no-warnings ${ROOT}/bin/seeks.mjs run x`,
-    `seeks run x --goal y --check true`, `/usr/local/bin/seeks run x`, `npx github:Bogzx/seeks run x`, `npx --yes seeks@latest run x`]){
+    `seeks run x --goal y --check true`, `/usr/local/bin/seeks run x`, `npx github:Bogzx/seeks run x`, `npx --yes seeks@latest run x`,
+    // review 2026-10-01: package runners read the way they run
+    `npx -p seeks seeks run x`, `npm exec -p seeks -- seeks run x`, `npx git+https://github.com/Bogzx/seeks.git run x`,
+    `npx --package=github:Bogzx/seeks seeks run x`, `npx -y github:Bogzx/seeks#main run x`, `npx https://github.com/Bogzx/seeks run x`,
+    `pnpm dlx seeks run x`, `npx --cache /tmp/c seeks run x`, `npx -p seeks -c "seeks run x --goal y --check true"`, `npm x -- seeks run x`]){
     for (const strictBash of [false, true]){
       const d = decidePreTool('Bash', { command: cmd }, pctx({ strictBash }));
       assert.equal(d.action, 'deny', `should deny (strict=${strictBash}): ${cmd}`); assert.equal(d.rule, 'nested-claude', cmd);
     }
   }
   for (const cmd of [`node ${ROOT}/bin/seeks.mjs status-get ui`, `node ${ROOT}/bin/seeks.mjs certify ui`, `node ${ROOT}/bin/seeks.mjs why ui --denied`,
-    `node ${ROOT}/bin/seeks.mjs log-add ui run the tests`, `npm run test`, `seeks why ui`, `npx github:Bogzx/seeks --version`, `grep -rn "seeks run" README.md`])
+    `node ${ROOT}/bin/seeks.mjs log-add ui run the tests`, `npm run test`, `seeks why ui`, `npx github:Bogzx/seeks --version`, `grep -rn "seeks run" README.md`,
+    `npx -p seeks seeks why ui`, `npx prettier --check .`, `npm exec -- eslint .`, `npx -p seeks -c "seeks status-get ui"`, `npx -p typescript tsc --noEmit`])
     assert.equal(decidePreTool('Bash', { command: cmd }, pctx()).action, 'allow', `should allow: ${cmd}`);
 });
 test('…under strict mode too, where sed itself is allowlisted', () => {
