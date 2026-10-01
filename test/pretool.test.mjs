@@ -1,6 +1,6 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import path from 'node:path'; import fs from 'node:fs'; import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process'; import { makeTempRepo } from './helpers.mjs';
+import { execFileSync } from 'node:child_process'; import os from 'node:os'; import { makeTempRepo } from './helpers.mjs';
 import { readDecisions } from '../hooks/lib/decisions.mjs';
 const HOOK = fileURLToPath(new URL('../hooks/pre-tool.mjs', import.meta.url));
 const runEnv = (cwd, payload, env) => execFileSync('node',[HOOK],{ input: JSON.stringify({ cwd, ...payload }), env: { ...process.env, ...env } }).toString().trim();
@@ -134,4 +134,21 @@ test('the real hook protects its OWN plugin directory — the one it was loaded 
   assert.equal(run(wt, { tool_name:'Bash', tool_input:{ command:`node ${root}/bin/seeks.mjs status-get ui` } }), '');
   const edit = JSON.parse(run(wt, { tool_name:'Edit', tool_input:{ file_path: `${root}/hooks/lib/policy.mjs` } }));
   assert.equal(edit.hookSpecificOutput.permissionDecision, 'deny');
+});
+
+// On a case-insensitive filesystem (macOS and Windows by default) `.ENV` is the same file as
+// `.env`. Runs only where the temp dir really is case-insensitive; the CI matrix has both.
+const caseInsensitiveFs = (() => { try { const d = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'seeks-ci-'));
+  fs.writeFileSync(path.join(d, 'a'), ''); const r = fs.existsSync(path.join(d, 'A')); fs.rmSync(d, { recursive: true, force: true }); return r; } catch { return false; } })();
+test('on a case-insensitive filesystem the real hook denies .ENV and Secrets/ like .env and secrets/', { skip: !caseInsensitiveFs && 'case-sensitive filesystem' }, () => {
+  const { wt, rd } = armLoop('L2');
+  fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify({ loop:'ui', armed:true, worktree_path:wt, level:'L2', denylist:['**/.env','**/secrets/**'], oracle_globs:[] }));
+  for (const f of ['.ENV', path.join('Secrets','k.txt')]){
+    const out = JSON.parse(run(wt, { tool_name:'Write', tool_input:{ file_path: path.join(wt, f) } }));
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'deny', f);
+  }
+  assert.equal(run(wt, { tool_name:'Write', tool_input:{ file_path: path.join(wt,'SRC','a.js') } }), '', 'other edits are allowed');
+  // Containment compares exact case off win32, so this passes only because realpath returns the
+  // on-disk case of the worktree when the model spells it `UI`.
+  assert.equal(run(wt, { tool_name:'Write', tool_input:{ file_path: path.join(path.dirname(wt),'UI','src','b.js') } }), '', 'the worktree spelled in another case');
 });

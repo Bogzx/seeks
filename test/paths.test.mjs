@@ -5,7 +5,8 @@ test('separators normalized + case-insensitive on win32', () => {
   assert.equal(isInside('C:/a/b/c', 'C:\\a\\b', 'win32'), true);
   assert.equal(isInside('C:/A/B/c', 'c:/a/b', 'win32'), true);
 });
-test('case-sensitive off win32', () => { assert.equal(isInside('/A/B/c', '/a/b', 'linux'), false); });
+test('case-sensitive on linux', () => { assert.equal(isInside('/A/B/c', '/a/b', 'linux'), false); });
+test('case-insensitive on darwin (APFS default)', () => { assert.equal(isInside('/Users/A/b/c', '/users/a/B', 'darwin'), true); });
 test('boundary not fooled by prefix', () => {
   assert.equal(isInside('/foo/bar', '/foo/ba', 'linux'), false);
   assert.equal(isInside('/foo/ba', '/foo/ba', 'linux'), true);

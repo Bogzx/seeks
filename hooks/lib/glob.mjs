@@ -2,11 +2,13 @@
 // slashes), anchored full-path. * stays within a segment; ** spans directories;
 // **/ matches zero or more leading segments; ? matches one non-slash char;
 // [abc] / [a-z] / [!a] / [^a] / [[:alpha:]] is a ONE-character class that never spans a
-// slash. Case-insensitive on win32 (paths there are case-folded) so uppercase patterns match.
+// slash. Case-insensitive on win32 and darwin (paths there are case-folded, see paths.mjs::foldsCase)
+// so uppercase patterns match.
 // A bracket group compiles to class-OR-the-literal-text, on purpose: `app/[slug]/page.tsx`
 // is a real path AND a real denylist entry, so teaching the engine class semantics must only
 // ever ADD matches, never take one away. (This engine is also what decides whether a glob in
 // a Bash command resolves onto a hook-owned file — see policy.mjs::hookOwnedResolved.)
+import { foldsCase } from './paths.mjs';
 const POSIX_CLASS = {
   alpha:'A-Za-z', digit:'0-9', alnum:'A-Za-z0-9', lower:'a-z', upper:'A-Z', word:'\\w',
   space:'\\s', blank:' \\t', xdigit:'0-9A-Fa-f', cntrl:'\\x00-\\x1f', print:'\\x20-\\x7e',
@@ -53,7 +55,7 @@ export function globToRegExp(glob, platform = process.platform){
     }
     else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
   }
-  return new RegExp(re + '$', platform === 'win32' ? 'i' : '');
+  return new RegExp(re + '$', foldsCase(platform) ? 'i' : '');
 }
 export function globMatch(relPath, pattern, platform = process.platform){ return globToRegExp(pattern, platform).test(String(relPath).split('\\').join('/')); }
 export function anyGlob(relPath, patterns = [], platform = process.platform){ return patterns.some(p => globMatch(relPath, p, platform)); }

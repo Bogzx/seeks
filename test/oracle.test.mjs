@@ -57,7 +57,7 @@ test('oracleGlobsPresent counts files matching the globs in the worktree', () =>
 });
 
 // ─── pre-existing oracle files (tests AND build manifests) ────────────────────────────
-import { oracleModifiedPreexisting, oraclePolicy, MANIFEST_GLOBS } from '../hooks/lib/oracle.mjs';
+import { oracleModifiedPreexisting, oraclePolicy, MANIFEST_GLOBS, guardedGit } from '../hooks/lib/oracle.mjs';
 import { anyGlob } from '../hooks/lib/glob.mjs';
 function fixture(){
   const repo = makeTempRepo();
@@ -130,4 +130,42 @@ test('assume-unchanged and skip-worktree do not hide an edited oracle file', () 
   assert.equal(git(repo,'status','--porcelain').trim(), '', 'precondition: git status sees nothing');
   assert.deepEqual(oracleModifiedPreexisting(repo, base), [{ file:'test/a.test.js', change:'modified' }, { file:'test/b.test.js', change:'deleted' }]);
   assert.deepEqual(oracleDiffHash(repo, base).files, ['test/a.test.js', 'test/b.test.js'], 'and the advisory ack hash covers them too');
+});
+
+// git < 2.31 ignores GIT_CONFIG_COUNT, so a filter the maker configured stayed in force there and a
+// relaxed test passed as unchanged. configEnv:false is that git: only the `-c` route is used.
+test('a clean filter is blanked without GIT_CONFIG_COUNT too (git < 2.31): the -c route alone catches the edit', () => {
+  const { repo, base } = fixture();
+  git(repo,'config','filter.x.clean',`git show ${base}:%f`);
+  fs.appendFileSync(path.join(repo,'.git','info','attributes'), 'test/* filter=x\n');
+  fs.writeFileSync(path.join(repo,'test','a.test.js'), 'process.exit(0)\n');
+  assert.equal(git(repo,'hash-object','test/a.test.js').trim(), git(repo,'rev-parse',`${base}:test/a.test.js`).trim(), 'precondition: through the filter the edit hashes as the base blob');
+  const g = guardedGit(repo, { configEnv:false });
+  assert.ok(g.args.includes('filter.x.clean='), 'the driver is blanked on the command line');
+  assert.equal(g.env.GIT_CONFIG_COUNT, undefined);
+  assert.deepEqual(oracleModifiedPreexisting(repo, base, undefined, { configEnv:false }), [{ file:'test/a.test.js', change:'modified' }]);
+});
+test('a filter driver whose name holds "=" can\'t be blanked with -c: on git < 2.31 that fails closed', () => {
+  const { repo, base } = fixture();
+  git(repo,'config','filter.a=b.clean','cat');
+  assert.deepEqual(guardedGit(repo, { configEnv:false }).unguarded, ['filter.a=b.clean']);
+  assert.deepEqual(guardedGit(repo, { configEnv:true }).unguarded, [], 'GIT_CONFIG_KEY_n carries any key');
+  assert.deepEqual(oracleModifiedPreexisting(repo, base, undefined, { configEnv:false }),
+    [{ file:'git config filter.a=b.clean', change:'filter git < 2.31 cannot bypass' }]);
+  assert.deepEqual(oracleModifiedPreexisting(repo, base, undefined, { configEnv:true }), []);
+});
+
+test('a git failure with a base commit is never read as "nothing changed": it comes back unchecked', () => {
+  const { repo } = fixture();
+  const r = oracleModifiedPreexisting(repo, '0123456789abcdef0123456789abcdef01234567');
+  assert.ok(r.some(o => o.unchecked && o.file === 'git diff'), JSON.stringify(r));
+  assert.equal(oracleModifiedPreexisting(repo, null), null, 'no base at all is still "nothing to compare"');
+});
+test('filter.<d>.required is overridden too: a required driver with no command would make git diff fail', () => {
+  const { repo, base } = fixture();
+  git(repo,'config','filter.x.required','true'); fs.appendFileSync(path.join(repo,'.git','info','attributes'), 'test/* filter=x\n');
+  fs.writeFileSync(path.join(repo,'test','a.test.js'), 'process.exit(0)\n');
+  assert.throws(() => git(repo,'diff','--name-only',base), 'precondition: plain git diff fails');
+  assert.ok(guardedGit(repo).args.includes('filter.x.required=false'));
+  assert.deepEqual(oracleModifiedPreexisting(repo, base), [{ file:'test/a.test.js', change:'modified' }]);
 });
