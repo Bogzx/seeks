@@ -220,11 +220,11 @@ test('an expansion too big to enumerate is treated as potentially hook-owned, no
   assert.ok(Date.now() - t0 < 2000, 'the cap must bound the work, not just the answer');
 });
 // The honest other half. These are NOT aspirational — they are pinned as ALLOW because that is
-// what the code does, and the README says so in the same words. A shell is Turing-complete: a
+// what the code does, and GUARANTEES.md says so in the same words. A shell is Turing-complete: a
 // path assembled at runtime, or written by a program this only sees the NAME of, cannot be
 // caught by reading a command string. If one of these ever starts denying, this test failing is
 // the signal to go and make the docs less pessimistic — not to "fix" the test.
-test('what STILL gets through — pinned, because the README promises exactly this much', () => {
+test('what STILL gets through — pinned, because GUARANTEES.md promises exactly this much', () => {
   const c = ctx('L2');
   for (const cmd of [
     `P=$(printf 'sta%s' 'tus.json'); echo x > "$P"`,        // the name never appears in the command
@@ -234,7 +234,7 @@ test('what STILL gets through — pinned, because the README promises exactly th
     `ln -s $(pwd) /tmp/x`,                                  // symlink pivot with a dynamic target
     `echo x > ui/status.json`,                              // a PERSISTENT cd from an EARLIER Bash call
   ]) assert.equal(decidePreTool('Bash', { command: cmd }, c).action, 'allow',
-      `known gap, documented in README — should still allow: ${cmd}`);
+      `known gap, documented in GUARANTEES.md — should still allow: ${cmd}`);
 });
 test('the loop-state rule does not swallow the sanctioned CLI or neighbouring files', () => {
   const c = ctx('L2');

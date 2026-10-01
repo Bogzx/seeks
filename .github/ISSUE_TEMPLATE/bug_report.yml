@@ -71,5 +71,5 @@ body:
       options:
         - label: "`/seeks:doctor` says `node` and `git` are on the hook's PATH (the #1 cause of `Stop hook error`)"
           required: false
-        - label: I checked this isn't one of the documented gaps in the README's coverage table
+        - label: I checked this isn't one of the documented gaps in GUARANTEES.md
           required: false
