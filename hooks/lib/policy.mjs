@@ -26,8 +26,8 @@ const deny = (rule, reason) => ({ action:'deny', rule, reason });
 const HOOK_OWNED_DENY = '[seeks] status.json / hook-state.json / decisions.jsonl / control-grant.json are hook-owned — never read or write them directly (that state holds the iteration cap, the clock, the verifier gate and the audit log). Drive state via bin/seeks.mjs: "seeks status-get <name>" / "seeks status-set <name> <patch-json>" / "seeks why <name>".';
 const PLUGIN_DIR_DENY = '[seeks] that is the seeks plugin\'s own code (hooks/, bin/, commands/, skills/, .claude-plugin/) — the guardrails themselves. Only running "node <plugin>/bin/seeks.mjs <cmd>" is allowed.';
 const targetPath = (tool, ti) => !ti ? null : (tool === 'NotebookEdit' ? (ti.notebook_path ?? null) : (ti.file_path ?? null));
-function relTo(absChild, parent){
-  if (!parent) return null; const c = canon(absChild); let p = canon(parent);
+function relTo(absChild, parent, platform = process.platform){
+  if (!parent) return null; const c = canon(absChild, platform); let p = canon(parent, platform);
   if (c === p) return ''; if (!p.endsWith('/')) p += '/'; return c.startsWith(p) ? c.slice(p.length) : null;
 }
 
@@ -622,11 +622,21 @@ function bashTouchesPluginCode(cmd, ctx = {}){
 const CLAUDE_BINS = new Set(['claude','claude-code']);
 const CLAUDE_PKG_RE = /^(?:@anthropic-ai\/claude-code|claude|claude-code)(?:@[^\s]*)?$/i;
 const CLAUDE_JS_RE = /(?:^|[\/\\])(?:@anthropic-ai[\/\\]claude-code[\/\\].*|claude[\/\\]versions[\/\\].*)$/i;
+// `seeks run` is one of those spellings: it spawns `claude -p` (or whatever `--claude` names) with
+// bypassPermissions, through the one CLI the plugin-dir rule lets the maker run.
+function seeksCliSub(argv){
+  if (!argv.length) return null;
+  if (SEEKS_CLI_RE.test(argv[0])) return argv[1] ?? null;
+  if (baseOf(argv[0]) !== 'node') return null;
+  const i = argv.findIndex((t, j) => j > 0 && !t.startsWith('-'));     // the same script pick as isSeeksCli
+  return i !== -1 && SEEKS_CLI_RE.test(argv[i]) ? (argv[i + 1] ?? null) : null;
+}
 function bashLaunchesClaude(cmd){
   for (const v of commandVariants(cmd).list) for (const { argv } of bashPlan(v, null)){
     if (!argv.length) continue;
     const b = baseOf(argv[0]), rest = argv.slice(1);
     if (CLAUDE_BINS.has(b) || CLAUDE_JS_RE.test(argv[0])) return true;
+    if (seeksCliSub(argv) === 'run') return true;
     const runner = b === 'npx' || b === 'bunx' || b === 'pnpx' || ((b === 'pnpm' || b === 'yarn') && rest[0] === 'dlx')
       || (b === 'npm' && (rest[0] === 'exec' || rest[0] === 'x'));
     if (runner && rest.some(t => CLAUDE_PKG_RE.test(t))) return true;
@@ -696,14 +706,15 @@ export function decidePreTool(toolName, toolInput, ctx = {}){
   }
   if (!EDIT_TOOLS.has(toolName)) return allow;
   const p = targetPath(toolName, toolInput); if (!p) return allow;
-  const abs = canon(p);
+  const platform = ctx.platform ?? process.platform;                    // case-folded on win32/darwin (paths.mjs::foldsCase)
+  const abs = canon(p, platform);
   if (isHookOwnedFile(abs)) return deny('hook-owned', HOOK_OWNED_DENY);
   if (inPluginCode(abs, pluginRootsOf(ctx))) return deny('plugin-dir', PLUGIN_DIR_DENY);
-  if (ctx.runDir && isInside(abs, ctx.runDir)) return allow;            // run-dir allow-zone
-  const rel = relTo(abs, ctx.worktreePath);
-  if (rel != null && anyGlob(rel, effectiveDenylist(ctx.denylist)))
+  if (ctx.runDir && isInside(abs, ctx.runDir, platform)) return allow;  // run-dir allow-zone
+  const rel = relTo(abs, ctx.worktreePath, platform);
+  if (rel != null && anyGlob(rel, effectiveDenylist(ctx.denylist), platform))
     return deny('denylist', `[seeks] '${rel}' is on the denylist — refusing to edit.`);
-  if (ctx.worktreePath && !isInside(abs, ctx.worktreePath)) return deny('outside-worktree', '[seeks] edits must stay inside the loop worktree.');
+  if (ctx.worktreePath && !isInside(abs, ctx.worktreePath, platform)) return deny('outside-worktree', '[seeks] edits must stay inside the loop worktree.');
   if (level === 'L1') return deny('l1-edit', '[seeks] L1 is report-only: no source edits. Write findings under .seeks/run/<name>/.');
   if (wrapUp) return deny('wrap-up', '[seeks] time budget reached — only summary/run-dir writes allowed; stop editing source and end your turn.');
   return allow;
