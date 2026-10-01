@@ -624,9 +624,15 @@ const CLAUDE_PKG_RE = /^(?:@anthropic-ai\/claude-code|claude|claude-code)(?:@[^\
 const CLAUDE_JS_RE = /(?:^|[\/\\])(?:@anthropic-ai[\/\\]claude-code[\/\\].*|claude[\/\\]versions[\/\\].*)$/i;
 // `seeks run` is one of those spellings: it spawns `claude -p` (or whatever `--claude` names) with
 // bypassPermissions, through the one CLI the plugin-dir rule lets the maker run.
+// The same goes for the `seeks` that `npm install -g` / `npx [github:Bogzx/]seeks` put on PATH.
+const SEEKS_PKG_RE = /^(?:seeks|github:bogzx\/seeks|bogzx\/seeks)(?:[@#].*)?$/i;
 function seeksCliSub(argv){
   if (!argv.length) return null;
-  if (SEEKS_CLI_RE.test(argv[0])) return argv[1] ?? null;
+  if (SEEKS_CLI_RE.test(argv[0]) || baseOf(argv[0]) === 'seeks') return argv[1] ?? null;
+  const b = baseOf(argv[0]), rest = argv.slice(1);
+  if (b === 'npx' || b === 'bunx' || b === 'pnpx' || ((b === 'pnpm' || b === 'yarn') && rest[0] === 'dlx') || (b === 'npm' && (rest[0] === 'exec' || rest[0] === 'x'))){
+    const i = rest.findIndex(t => SEEKS_PKG_RE.test(t)); return i === -1 ? null : (rest[i + 1] ?? null);
+  }
   if (baseOf(argv[0]) !== 'node') return null;
   const i = argv.findIndex((t, j) => j > 0 && !t.startsWith('-'));     // the same script pick as isSeeksCli
   return i !== -1 && SEEKS_CLI_RE.test(argv[i]) ? (argv[i + 1] ?? null) : null;
