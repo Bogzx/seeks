@@ -1,12 +1,17 @@
 import { execFileSync } from 'node:child_process'; import path from 'node:path'; import fs from 'node:fs';
 import { isInside } from './paths.mjs'; import { readStatus } from './status.mjs';
 import { readHookState } from './hookstate.mjs';
-export function primaryRoot(cwd = process.cwd()){
+// The repo's shared .git dir, absolute. Not `--path-format=absolute`: git < 2.31 (Ubuntu 20.04,
+// Debian 11) doesn't know that flag and echoes it back on stdout with exit 0, so the "path" came
+// out as "--path-format=absolute\n../.git" and every hook quietly found no loop. Plain
+// `--git-common-dir` prints a path relative to the -C dir (or an absolute one, from a worktree).
+export function gitCommonDir(cwd = process.cwd()){
   try {
-    const common = execFileSync('git', ['-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding:'utf8' }).trim();
-    return path.dirname(common);
+    const out = execFileSync('git', ['-C', cwd, 'rev-parse', '--git-common-dir'], { encoding:'utf8', stdio:['ignore','pipe','ignore'] }).trim();
+    return out ? path.resolve(cwd, out) : null;
   } catch { return null; }
 }
+export function primaryRoot(cwd = process.cwd()){ const c = gitCommonDir(cwd); return c ? path.dirname(c) : null; }
 export function seeksDir(cwd = process.cwd()){ const r = primaryRoot(cwd); return r ? path.join(r,'.seeks') : null; }
 export function runDir(name, cwd = process.cwd()){ const s = seeksDir(cwd); return s ? path.join(s,'run',name) : null; }
 export function hasSeeksNearby(cwd){
