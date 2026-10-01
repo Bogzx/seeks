@@ -212,7 +212,7 @@ test('a dependency bump in package.json is free: green + acked releases done (ro
 });
 // ─── review 2026-09-30: green checks the oracle could not see ─────────────────────────
 // Each of these released ✅ done over a red `npm test` before the fix. Now each ends needs-human.
-function npmLoop(tamper){
+function npmLoop(tamper, statusPatch = {}){
   const repo = makeTempRepo(); const g = (...a) => execFileSync('git', a, { cwd: repo, stdio: 'ignore' });
   fs.mkdirSync(path.join(repo,'test'),{recursive:true});
   fs.writeFileSync(path.join(repo,'test','a.test.js'),'process.exit(1)\n');
@@ -222,8 +222,8 @@ function npmLoop(tamper){
   tamper(repo, g, base);
   const rd = path.join(repo,'.seeks','run','np'); fs.mkdirSync(rd,{recursive:true});
   const st = { loop:'np', armed:true, verifier_certified:true, conditions:[{ id:'tests', cmd:'npm test --silent' }], worktree_path:repo, base_sha:base,
-    open_items:0, max_iters:50, stuck_threshold:3, no_progress_count:0 };
-  st.oracle_ack_hash = oracleDiffHashFor(repo, base);
+    open_items:0, max_iters:50, stuck_threshold:3, no_progress_count:0, ...statusPatch };
+  st.oracle_ack_hash = oracleDiffHashFor(repo, st.base_sha);
   fs.writeFileSync(path.join(rd,'status.json'), JSON.stringify(st));
   return JSON.parse(run(repo)).systemMessage;
 }
@@ -242,4 +242,17 @@ test('a test edit hidden with assume-unchanged / skip-worktree, behind `git repl
   assert.match(npmLoop((r, g, base) => { g('config', 'filter.x.clean', `git show ${base}:%f`);   // a clean filter that hashes the edit as the base blob
     fs.appendFileSync(path.join(r,'.git','info','attributes'), 'test/* filter=x\n'); relax(r); }), /needs-human.*test\/a\.test\.js \(modified\)/);
   assert.match(npmLoop(relax), /needs-human/, 'control: the plain edit');
+});
+
+// review 2026-10-01: a filter marked required with no command makes `git diff` fail. The oracle
+// check used to read that failure as "nothing changed", so a relaxed test released ✅ done.
+test('a required filter with no command can\'t blind the oracle', () => {
+  assert.match(npmLoop((r, g) => { g('config','filter.x.required','true'); fs.appendFileSync(path.join(r,'.git','info','attributes'), 'test/* filter=x\n');
+    fs.writeFileSync(path.join(r,'test','a.test.js'),'process.exit(0)\n'); }), /needs-human.*test\/a\.test\.js \(modified\)/);
+});
+test('an oracle check that fails is not "unchanged": needs-human, under either oracle policy', () => {
+  const relax = (r) => fs.writeFileSync(path.join(r,'test','a.test.js'),'process.exit(0)\n');
+  const gone = '0123456789abcdef0123456789abcdef01234567';            // a base commit git can't diff against
+  for (const policy of ['needs_human', 'ack'])
+    assert.match(npmLoop(relax, { base_sha: gone, oracle_modified_policy: policy }), /needs-human.*oracle check failed/, policy);
 });

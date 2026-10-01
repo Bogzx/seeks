@@ -130,6 +130,13 @@ test('green on a modified pre-existing oracle → needs-human by default; policy
   const red = decide({ ...g, conditions_live:{ ok:false, failed:[{ id:'tests', exit:1 }] } }, hs(1));
   assert.equal(red.action, 'block', 'a red check is still the maker\'s to fix first');
 });
+test('green, but the oracle diff could not be computed → needs-human under either policy (the ack accepts changes, not blindness)', () => {
+  const g = { ...base, verifier_certified:true, conditions_live:OK, oracle_modified:['git diff (failed, so the oracle check failed)'], oracle_unchecked:true };
+  for (const oracle_modified_policy of ['needs_human', 'ack']){
+    const r = decide({ ...g, oracle_modified_policy }, hs(1));
+    assert.equal(r.stopKind, 'needs_human', oracle_modified_policy); assert.equal(r.detail, 'oracle-unchecked');
+  }
+});
 // ─── review 2026-09-30: which shell runs a done-condition on Windows ──────────────────
 test('resolveConditionShell: POSIX uses sh; Windows finds Git Bash like Claude Code, else cmd.exe with a warning', async () => {
   const { resolveConditionShell } = await import('../hooks/lib/verify.mjs');
