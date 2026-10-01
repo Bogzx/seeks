@@ -16,7 +16,7 @@ import { spawn, spawnSync, execFileSync } from 'node:child_process'; import { ra
 import { fileURLToPath } from 'node:url';
 import { readStatus, writeStatusAtomic } from '../hooks/lib/status.mjs';
 import { readHookState, recordRunner } from '../hooks/lib/hookstate.mjs';
-import { runDir, primaryRoot } from '../hooks/lib/resolve.mjs';
+import { runDir, primaryRoot, gitCommonDir } from '../hooks/lib/resolve.mjs';
 import { isLive } from '../hooks/lib/control.mjs';
 import { parseDuration } from '../hooks/lib/budget.mjs';
 import { TIERS, resolveTier } from '../hooks/lib/tiers.mjs';
@@ -59,7 +59,7 @@ export function binCommand(bin){ return /\.(m|c)?js$/i.test(bin) ? { cmd: proces
 export const claudeCommand = (bin) => binCommand(bin || process.env.SEEKS_CLAUDE_BIN || 'claude');
 export const makerPrompt = (name, resumed = false) => resumed
   ? `The previous maker process for the seeks loop "${name}" exited before the loop ended. Continue it: re-read .seeks/run/${name}/state.md and follow the /seeks:loop skill. Do EXACTLY ONE pass, then end your turn — the Stop hook re-drives you.`
-  : `You are the maker for the seeks loop "${name}", running headless. Its goal and done-conditions are in .seeks/loops/${name}/spec.md and its state in .seeks/run/${name}/ (resolve .seeks with git rev-parse --path-format=absolute --git-common-dir). Read and follow the /seeks:loop skill. Do EXACTLY ONE pass, then end your turn — the Stop hook re-drives you until the gate releases the loop.`;
+  : `You are the maker for the seeks loop "${name}", running headless. Its goal and done-conditions are in .seeks/loops/${name}/spec.md and its state in .seeks/run/${name}/ (node "${CLI}" seeks-dir prints where .seeks is). Read and follow the /seeks:loop skill. Do EXACTLY ONE pass, then end your turn — the Stop hook re-drives you until the gate releases the loop.`;
 
 // `docker run` for the maker. Everything is mounted at the SAME absolute path it has on the host, so
 // status.json's worktree_path, the worktree's gitdir pointer and --plugin-dir all resolve unchanged:
@@ -80,7 +80,7 @@ export function containerArgs({ name, containerName, worktree, root, pluginRoot,
 
 const self = (args, cwd) => execFileSync(process.execPath, [CLI, ...args], { cwd, encoding: 'utf8', stdio: ['ignore','pipe','pipe'] });
 const excludeLines = (root, lines) => {                        // ignore run state without touching the user's .gitignore
-  let common; try { common = execFileSync('git', ['-C', root, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' }).trim(); } catch { return; }
+  const common = gitCommonDir(root); if (!common) return;
   const f = path.join(common, 'info', 'exclude'); fs.mkdirSync(path.dirname(f), { recursive: true });
   let ex = ''; try { ex = fs.readFileSync(f, 'utf8'); } catch {}
   for (const l of lines) if (!ex.split('\n').includes(l)) ex += (ex && !ex.endsWith('\n') ? '\n' : '') + l + '\n';

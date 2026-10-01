@@ -304,6 +304,13 @@ test('preflight reports node + git status', () => {
   assert.equal(typeof r.ok, 'boolean');
   assert.ok(r.nodeExec && r.nodeExec.length > 0);
   assert.equal(r.gitOk, true);   // git is on PATH in the test env
+  assert.match(r.git_version, /^\d+\.\d+\.\d+$/);
+});
+test('seeks-dir prints the absolute .seeks of the repo, from a subdir too', () => {
+  const repo = makeTempRepo(); const sub = path.join(repo,'a','b'); fs.mkdirSync(sub,{recursive:true});
+  for (const cwd of [repo, sub]) assert.equal(fs.realpathSync.native(path.dirname(run(cwd,'seeks-dir'))), fs.realpathSync.native(repo));
+  assert.equal(path.basename(run(sub,'seeks-dir')), '.seeks');
+  assert.throws(() => run(path.dirname(repo),'seeks-dir'), /not inside a git repository/);
 });
 test('oracle-diff surfaces oracle_globs_present (vacuous-accounting signal)', () => {
   const repo = makeTempRepo();
