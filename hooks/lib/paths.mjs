@@ -1,4 +1,8 @@
 import path from 'node:path'; import fs from 'node:fs';
+// Windows and macOS (APFS and HFS+ by default) treat `.ENV` and `.env` as the same file, so path
+// comparisons there are case-folded. On a case-sensitive macOS volume that only ever matches
+// more, never less.
+export const foldsCase = (platform = process.platform) => platform === 'win32' || platform === 'darwin';
 export function canon(p, platform = process.platform) {
   let r = path.resolve(p);
   try { r = fs.realpathSync.native(r); }
@@ -12,7 +16,7 @@ export function canon(p, platform = process.platform) {
     }
   }
   r = r.split('\\').join('/');
-  if (platform === 'win32') r = r.toLowerCase();
+  if (foldsCase(platform)) r = r.toLowerCase();
   return r;
 }
 export function isInside(child, parent, platform = process.platform) {

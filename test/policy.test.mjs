@@ -540,6 +540,20 @@ test('review 2026-09-30: starting another Claude Code from the loop is denied (i
   for (const cmd of [`grep -rn claude src`, `echo claude`, `npm test`, `cat docs/claude.md`])
     assert.equal(decidePreTool('Bash', { command: cmd }, ctx('L2')).action, 'allow', `should allow: ${cmd}`);
 });
+// `seeks run` spawns `claude -p` with bypassPermissions, and it went through the CLI exception.
+test('`seeks run` from inside a loop is nested Claude Code too — every spelling; other CLI commands stay allowed', () => {
+  for (const cmd of [`node ${ROOT}/bin/seeks.mjs run x --goal y --check true`, `node "$CLAUDE_PLUGIN_ROOT/bin/seeks.mjs" run x --goal y --check true`,
+    `node ${ROOT}/bin/seeks.mjs run x --goal y --check true --claude /tmp/c`, `nohup node ${ROOT}/bin/seeks.mjs run x --resume &`,
+    `sh -c "node ${ROOT}/bin/seeks.mjs run x"`, `${ROOT}/bin/seeks.mjs run x`, `node --no-warnings ${ROOT}/bin/seeks.mjs run x`]){
+    for (const strictBash of [false, true]){
+      const d = decidePreTool('Bash', { command: cmd }, pctx({ strictBash }));
+      assert.equal(d.action, 'deny', `should deny (strict=${strictBash}): ${cmd}`); assert.equal(d.rule, 'nested-claude', cmd);
+    }
+  }
+  for (const cmd of [`node ${ROOT}/bin/seeks.mjs status-get ui`, `node ${ROOT}/bin/seeks.mjs certify ui`, `node ${ROOT}/bin/seeks.mjs why ui --denied`,
+    `node ${ROOT}/bin/seeks.mjs log-add ui run the tests`, `npm run test`])
+    assert.equal(decidePreTool('Bash', { command: cmd }, pctx()).action, 'allow', `should allow: ${cmd}`);
+});
 test('…under strict mode too, where sed itself is allowlisted', () => {
   const d = decidePreTool('Bash', { command:`sed -i 's/deny(/allow(/' ${ROOT}/hooks/lib/policy.mjs` }, pctx({ strictBash:true }));
   assert.equal(d.action, 'deny'); assert.equal(d.rule, 'plugin-dir');
@@ -570,4 +584,15 @@ test('the user\'s control grant and the plane-level crash log are hook-owned', (
   ]) assert.equal(decidePreTool('Bash', { command: cmd }, ctx('L2')).rule, 'hook-owned', `should deny: ${cmd}`);
   assert.equal(decidePreTool('Write', edit(`${PLANE}/control-grant.json`), ctx('L2')).rule, 'hook-owned');
   assert.equal(decidePreTool('Bash', { command:`cat ${PLANE}/config.json` }, ctx('L2')).action, 'allow', 'the rest of .seeks/ is not');
+});
+
+// macOS volumes are case-insensitive by default: `.ENV` IS `.env` there, so the denylist and the
+// worktree check fold case on darwin as they do on win32. Linux keeps exact-case semantics.
+test('darwin folds case for the denylist and confinement, like win32; linux does not', () => {
+  const c = { level:'L2', worktreePath:'/Users/me/repo/.claude/worktrees/ui', runDir:'/Users/me/repo/.seeks/run/ui', denylist: DEFAULT_DENYLIST };
+  for (const f of ['.ENV', '.Env.local', 'config/Secrets/key.txt', 'deploy/ID_RSA'])
+    assert.equal(decidePreTool('Write', edit(`${c.worktreePath}/${f}`), { ...c, platform:'darwin' }).rule, 'denylist', f);
+  assert.equal(decidePreTool('Write', edit('/users/ME/repo/.claude/worktrees/ui/src/a.js'), { ...c, platform:'darwin' }).action, 'allow', 'same dir, other case');
+  assert.equal(decidePreTool('Write', edit('/Users/me/repo/.claude/worktrees/ui/src/a.js'), { ...c, platform:'darwin' }).action, 'allow');
+  assert.equal(decidePreTool('Write', edit(`${c.worktreePath}/.ENV`), { ...c, platform:'linux' }).action, 'allow', 'a different file on linux');
 });
