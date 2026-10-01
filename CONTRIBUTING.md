@@ -27,7 +27,7 @@ bench/               the benchmark harness (tasks, runner, results table) — ne
 2. **One predicate, every call site.** If a rule is enforced in two places, it is *one exported function* consumed twice. `isHookOwnedFile` is checked by both the edit-tool branch and the Bash branch precisely so they cannot drift apart. Duplicating a regex is how a guardrail silently half-disappears.
 3. **State writes are atomic** — write to `<file>.tmp.<pid>`, then `rename`. Never write a state file in place. (Append-only logs may use `appendFileSync`.)
 4. **Hooks fail open, but never fail silent.** A hook error must never block a tool call or trap a session — so every entrypoint has a top-level `catch`. That `catch` must record a `hook-crash` to the decision log. "Allowed" and "enforcement was off" must never look the same from outside.
-5. **Don't claim a guarantee the code doesn't enforce.** The README's coverage table is a contract. If you widen or narrow what's enforced, that table changes in the same PR. Overclaiming security is treated as a bug of the same severity as the gap itself.
+5. **Don't claim a guarantee the code doesn't enforce.** The coverage table in GUARANTEES.md (and its summary in the README) is a contract. If you widen or narrow what's enforced, that table changes in the same PR. Overclaiming security is treated as a bug of the same severity as the gap itself.
 
 ## Writing a guardrail fix
 
