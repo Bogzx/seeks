@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import fs from 'node:fs'; import path from 'node:path'; import { execFileSync } from 'node:child_process';
 import { readStatus, writeStatusAtomic } from '../hooks/lib/status.mjs';
 import { runDir, primaryRoot, seeksDir, latestLoop } from '../hooks/lib/resolve.mjs';
