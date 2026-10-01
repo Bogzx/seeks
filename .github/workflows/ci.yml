@@ -37,6 +37,8 @@ jobs:
       - run: git config --global user.email ci@example.com
       - run: git config --global user.name CI
       - run: npm test
+      # the README's 60-second demo: real hooks, scripted maker; exits 1 if a verdict changes
+      - run: node examples/demo.mjs
       # deterministic end-to-end through the real Stop hook + CLI on a real git worktree; no model, free
       - run: npm run e2e:exhaustive
 
@@ -53,4 +55,5 @@ jobs:
       - run: git config --global user.email ci@example.com
       - run: git config --global user.name CI
       - run: npm test
+      - run: node examples/demo.mjs
       - run: npm run e2e:exhaustive

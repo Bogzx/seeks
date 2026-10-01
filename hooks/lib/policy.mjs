@@ -2,7 +2,7 @@
 // it is fixed code (no model). First matching DENY wins; default ALLOW. Only edit
 // tools + Bash are policed. Every verdict carries a stable `rule` id — that is what the
 // decision log records and what `seeks why <name>` replays back.
-// What this covers, and what it deliberately does not, is stated in README.md
+// What this covers, and what it deliberately does not, is stated in GUARANTEES.md
 // ("What the guardrails cover — and what they don't").
 import { canon, isInside } from './paths.mjs'; import { anyGlob, globMatchCI } from './glob.mjs';
 import { pastDeadline } from './budget.mjs'; import os from 'node:os';
@@ -35,7 +35,7 @@ function relTo(absChild, parent, platform = process.platform){
 // ONE tokenizer, ONE segment splitter, ONE prefix stripper. Every Bash rule below is built
 // from them, so an evasion closed for `git push` is closed for loop-state and strict mode
 // in the same edit — the three can't drift apart. (Honest-drift best-effort: obfuscation
-// through `$(…)` or variable indirection stays out of scope, and README says so.)
+// through `$(…)` or variable indirection stays out of scope, and GUARANTEES.md says so.)
 function stripComments(cmd){        // an unquoted `#` at a word boundary comments out the rest of the LINE
   let out = '', q = null;
   for (let i = 0; i < cmd.length; i++){ const c = cmd[i];
@@ -502,7 +502,7 @@ function isSeeksTreeDir(abs, runDir){
 // or anything climbing through `..` is therefore un-resolvable in principle, not just in practice.
 // Those spellings deny. A path with a real directory in front of it (`src/status.json`) resolves
 // against the cwd we were handed and is allowed — that is the deliberate line, and the residual
-// hole it leaves (`cd <run-dir>/..` in call 1, `ui/status.json` in call 2) is in the README.
+// hole it leaves (`cd <run-dir>/..` in call 1, `ui/status.json` in call 2) is in GUARANTEES.md.
 function relIsAmbiguous(cand){
   const parts = normParts(splitPath(cand));
   if (!parts.length || !HOOK_FILE_RE.test(parts[parts.length-1])) return false;
@@ -515,7 +515,7 @@ const DYNAMIC_RE = /[$`]/;          // `$R/status.json`, `$(dirname x)/status.js
 // so classifying the VERB is a losing game. The enforceable line is the mention of the path
 // itself — nothing legitimate needs it, because reads and writes both have a CLI
 // (`seeks status-get` / `status-set` / `why`). Layers, cheapest first; any one denies.
-// This is BEST-EFFORT and the README says so in those words: a shell is Turing-complete, and a
+// This is BEST-EFFORT and GUARANTEES.md says so in those words: a shell is Turing-complete, and a
 // path assembled at runtime, or written by a script this only sees the NAME of, is out of reach.
 function bashTouchesHookOwned(cmd, ctx = {}){
   const { list, truncated } = commandVariants(cmd);
@@ -659,7 +659,7 @@ export function isWrapUpBash(cmd){
 // `rm -rf`, `chmod`, `ssh`, `nc` and any bare binary are denied rather than merely
 // un-policed. It is an ALLOWLIST, NOT A SANDBOX: `node` and `npm` are on it because the
 // loop needs a toolchain, and `node -e` can do anything. A container is still the only
-// guarantee — README says exactly this.
+// guarantee — GUARANTEES.md says exactly this.
 export const STRICT_BASH_ALLOW = [
   // read + inspect
   'ls','cat','head','tail','wc','grep','rg','find','file','stat','pwd','echo','printf','true','false',
