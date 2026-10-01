@@ -228,9 +228,10 @@ function npmLoop(tamper){
   return JSON.parse(run(repo)).systemMessage;
 }
 const unix = process.platform !== 'win32';
-test('an .npmrc that swaps npm\'s script shell is oracle — gitignored or not', { skip: !unix && 'script-shell=/bin/true is POSIX' }, () => {
-  assert.match(npmLoop((r) => fs.writeFileSync(path.join(r,'.npmrc'),'script-shell=/bin/true\n')), /needs-human.*\.npmrc \(added\)/);
-  assert.match(npmLoop((r) => { fs.writeFileSync(path.join(r,'.gitignore'),'.npmrc\n'); fs.writeFileSync(path.join(r,'.npmrc'),'script-shell=/bin/true\n'); }),
+const TRUE_BIN = ['/bin/true', '/usr/bin/true'].find(f => fs.existsSync(f));   // macOS has only /usr/bin/true
+test('an .npmrc that swaps npm\'s script shell is oracle — gitignored or not', { skip: !unix && 'script-shell=true is POSIX' }, () => {
+  assert.match(npmLoop((r) => fs.writeFileSync(path.join(r,'.npmrc'),`script-shell=${TRUE_BIN}\n`)), /needs-human.*\.npmrc \(added\)/);
+  assert.match(npmLoop((r) => { fs.writeFileSync(path.join(r,'.gitignore'),'.npmrc\n'); fs.writeFileSync(path.join(r,'.npmrc'),`script-shell=${TRUE_BIN}\n`); }),
     /needs-human.*\.npmrc \(added\)/);
 });
 test('a test edit hidden with assume-unchanged / skip-worktree, behind `git replace` or a clean filter, still counts', () => {
