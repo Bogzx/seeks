@@ -45,7 +45,7 @@ It exits non-zero if any verdict differs from the above, and CI runs it on every
 /plugin install seeks@seeks
 ```
 
-Then `/reload-plugins` or restart. (Hacking on it locally? `claude --plugin-dir "/path/to/seeks"`.)
+Then `/reload-plugins` or restart. (Hacking on it locally? `claude --plugin-dir "/path/to/seeks"`.) Installed it before 2026-10-01 and `/plugin` still shows 0.1.0? The [0.2.0 notes](CHANGELOG.md#020--2026-10-01) say how to update.
 
 You need **Node ≥18 installed system-wide** (hooks run in a non-interactive shell, so a node that only nvm/fnm/asdf puts on `PATH` isn't found) and **git ≥2.25**. `/seeks:doctor` reports both; details under [Requirements](#requirements).
 
@@ -160,7 +160,7 @@ Tell it how hard to dig at `/seeks:new` — *quick*, *thorough*, or *overnight* 
 No interactive session needed. From a terminal in your repo:
 
 ```bash
-git clone https://github.com/Bogzx/seeks ~/seeks && alias seeks='node ~/seeks/bin/seeks.mjs'   # once
+npm install -g github:Bogzx/seeks     # once; or: git clone https://github.com/Bogzx/seeks ~/seeks && alias seeks='node ~/seeks/bin/seeks.mjs'
 seeks run fix-auth --goal "fix the flaky auth tests" --check "npm test" --budget 2h --strict
 seeks run fix-auth --budget 8h        # or: a loop you already made with /seeks:new
 ```
@@ -172,7 +172,7 @@ seeks run fix-auth --budget 8h        # or: a loop you already made with /seeks:
 - **`--goal … --check …`** scaffolds a new loop without the `/seeks:new` interview. It creates the worktree on `seeks/<name>` and stores each `--check` as a done-condition (exit 0). Run state is ignored via `.git/info/exclude`; your `.gitignore` is not touched. At least one `--check` is required.
 - **`--resume`**: if the maker process dies before the gate releases the loop, `seeks run <name> --resume` continues **the same conversation** (`claude --resume <session>`, recorded in hook-owned state) with the **same budget**. The iteration counter and the clock carry on instead of restarting.
 - **`--strict`** sets `SEEKS_STRICT_BASH=1` for the maker. `--dry-run` prints the exact command and env without touching anything. `--claude <path>` or `SEEKS_CLAUDE_BIN` picks the binary.
-- The child loads seeks from the checkout you ran `seeks run` from. If the marketplace copy is also enabled in your Claude Code config, its hooks may fire as well; disable one of the two for headless runs.
+- The child loads seeks from the copy you ran `seeks run` from (your clone, or the npm install). If the marketplace copy is also enabled in your Claude Code config, its hooks may fire as well; disable one of the two for headless runs.
 
 ### `--container`: keep the rest of your machine out of reach
 

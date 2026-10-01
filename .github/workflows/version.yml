@@ -1,0 +1,24 @@
+name: version-bump
+
+# Installed users only receive a new seeks when plugin.json's version changes, so a PR that changes
+# what the plugin runs must bump it (scripts/check-version-bump.mjs). Separate from CI so that adding
+# or removing the no-version-bump label re-runs only this check.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  version-bump:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-version-bump') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444   # v5.0.0
+        with:
+          node-version: '22'
+      - run: node scripts/check-version-bump.mjs ${{ github.event.pull_request.base.sha }}
