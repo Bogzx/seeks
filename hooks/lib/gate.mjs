@@ -34,6 +34,10 @@ export function decide(status, hookState, now = Date.now()){
   // Green — but on a check whose pre-existing tests/manifests were changed. Whether that change
   // still measures the goal is a judgment the maker must not make for itself (it can run
   // oracle-ack), so by default a human does. `oracle_modified` is computed by the stop hook.
+  // `oracle_unchecked`: the stop hook could not compute that diff (a git call failed). That is not
+  // "nothing changed", and the `ack` policy accepts changes, not blindness, so it is needs-human too.
+  if (verified && s.oracle_unchecked === true)
+    return { action:'allow', reason:null, stopKind:'needs_human', detail:'oracle-unchecked' };
   if (verified && oraclePolicy(s) === 'needs_human' && (s.oracle_modified?.length ?? 0) > 0)
     return { action:'allow', reason:null, stopKind:'needs_human', detail:'oracle-modified' };
   if (verified && deliverySatisfied(s)) return { action:'allow', reason:null, stopKind:'done' };
