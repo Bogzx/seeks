@@ -23,6 +23,10 @@ jobs:
           # backslash normalization). Without this leg those branches never execute in CI.
           - os: windows-latest
             node: '20'
+          # macOS volumes are case-insensitive by default: paths.mjs::foldsCase and the
+          # case-insensitive-filesystem test in pretool.test.mjs only mean something here.
+          - os: macos-latest
+            node: '22'
     name: test (${{ matrix.os }}, node ${{ matrix.node }})
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
@@ -34,4 +38,19 @@ jobs:
       - run: git config --global user.name CI
       - run: npm test
       # deterministic end-to-end through the real Stop hook + CLI on a real git worktree; no model, free
+      - run: npm run e2e:exhaustive
+
+  # git < 2.31 (Ubuntu 20.04, Debian 11) doesn't know `rev-parse --path-format=absolute` and echoes
+  # it back, which once left every hook unable to find its loop. ubuntu-latest ships a current
+  # git, so this leg runs the suite on Debian 11's git 2.30.
+  test-old-git:
+    name: test (debian 11, git 2.30, node 18)
+    runs-on: ubuntu-latest
+    container: node:18-bullseye@sha256:0d9e9a8dcd5a83ea737ed92227a6591a31ad70c8bb722b0c51aff7ae23a88b6a   # git 2.30.2
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
+      - run: git --version
+      - run: git config --global user.email ci@example.com
+      - run: git config --global user.name CI
+      - run: npm test
       - run: npm run e2e:exhaustive
