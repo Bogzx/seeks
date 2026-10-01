@@ -154,3 +154,18 @@ test('a filter driver whose name holds "=" can\'t be blanked with -c: on git < 2
     [{ file:'git config filter.a=b.clean', change:'filter git < 2.31 cannot bypass' }]);
   assert.deepEqual(oracleModifiedPreexisting(repo, base, undefined, { configEnv:true }), []);
 });
+
+test('a git failure with a base commit is never read as "nothing changed": it comes back unchecked', () => {
+  const { repo } = fixture();
+  const r = oracleModifiedPreexisting(repo, '0123456789abcdef0123456789abcdef01234567');
+  assert.ok(r.some(o => o.unchecked && o.file === 'git diff'), JSON.stringify(r));
+  assert.equal(oracleModifiedPreexisting(repo, null), null, 'no base at all is still "nothing to compare"');
+});
+test('filter.<d>.required is overridden too: a required driver with no command would make git diff fail', () => {
+  const { repo, base } = fixture();
+  git(repo,'config','filter.x.required','true'); fs.appendFileSync(path.join(repo,'.git','info','attributes'), 'test/* filter=x\n');
+  fs.writeFileSync(path.join(repo,'test','a.test.js'), 'process.exit(0)\n');
+  assert.throws(() => git(repo,'diff','--name-only',base), 'precondition: plain git diff fails');
+  assert.ok(guardedGit(repo).args.includes('filter.x.required=false'));
+  assert.deepEqual(oracleModifiedPreexisting(repo, base), [{ file:'test/a.test.js', change:'modified' }]);
+});
