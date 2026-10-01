@@ -1,9 +1,11 @@
 import path from 'node:path'; import fs from 'node:fs';
-// Windows and macOS (APFS and HFS+ by default) treat `.ENV` and `.env` as the same file, so path
-// comparisons there are case-folded. On a case-sensitive macOS volume that only ever matches
-// more, never less.
+// Windows and macOS (APFS and HFS+ by default) treat `.ENV` and `.env` as the same file. Folding
+// case is always safe for a DENY match (the denylist globs): it can only deny more. It is not safe
+// for a containment check on a case-sensitive macOS volume, where `/x/WT` is a different directory
+// from `/x/wt` — so callers that test containment pass `fold` explicitly (policy.mjs folds those on
+// win32 only, and relies on realpath, which returns the on-disk case of every existing ancestor).
 export const foldsCase = (platform = process.platform) => platform === 'win32' || platform === 'darwin';
-export function canon(p, platform = process.platform) {
+export function canon(p, platform = process.platform, fold = foldsCase(platform)) {
   let r = path.resolve(p);
   try { r = fs.realpathSync.native(r); }
   catch {                                    // leaf (or a tail of it) may not exist yet — e.g. a Write creating a new file.
@@ -16,10 +18,10 @@ export function canon(p, platform = process.platform) {
     }
   }
   r = r.split('\\').join('/');
-  if (foldsCase(platform)) r = r.toLowerCase();
+  if (fold) r = r.toLowerCase();
   return r;
 }
-export function isInside(child, parent, platform = process.platform) {
-  const c = canon(child, platform); let p = canon(parent, platform);
+export function isInside(child, parent, platform = process.platform, fold = foldsCase(platform)) {
+  const c = canon(child, platform, fold); let p = canon(parent, platform, fold);
   if (c === p) return true; if (!p.endsWith('/')) p += '/'; return c.startsWith(p);
 }
